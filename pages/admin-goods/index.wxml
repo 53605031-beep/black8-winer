@@ -1,0 +1,132 @@
+<view class="page">
+  <view class="tab-bar">
+    <view class="tab {{tab === 'goods' ? 'tab-active' : ''}}" bindtap="onSwitchTab" data-tab="goods">商品管理</view>
+    <view class="tab {{tab === 'redemptions' ? 'tab-active' : ''}}" bindtap="onSwitchTab" data-tab="redemptions">
+      发货跟进
+      <view wx:if="{{redemptionList.length > 0}}" class="tab-badge">{{redemptionList.length}}</view>
+    </view>
+    <view class="tab-side">
+      <button class="btn-ghost" size="mini" bindtap="_load">刷新</button>
+    </view>
+  </view>
+
+  <!-- 商品 -->
+  <block wx:if="{{tab === 'goods'}}">
+    <view class="toolbar">
+      <button class="btn-primary" size="mini" bindtap="onShowAddModal">＋ 添加商品</button>
+    </view>
+
+    <view wx:if="{{loading}}" class="hint">加载中...</view>
+
+    <view wx:if="{{!loading && goodsList.length === 0}}" class="empty">暂无商品，先添加一条</view>
+
+    <view wx:for="{{goodsList}}" wx:key="_id" class="card goods-card">
+      <view class="goods-row">
+        <view class="goods-main">
+          <view class="goods-title">{{item.name}}</view>
+          <view class="goods-meta">
+            <text class="price {{item.currencyType === 'yuedou' ? 'price-yuedou' : 'price-score'}}">{{item.price}} {{item.currencyType === 'yuedou' ? '约豆' : '积分'}}</text>
+            <text class="stock">库存 {{item.stock}}</text>
+            <text class="badge {{item.status === 'active' ? 'badge-on' : 'badge-off'}}">{{item.status === 'active' ? '上架' : '下架'}}</text>
+            <text class="badge badge-cat">{{item.category === 'virtual' ? '虚拟' : '实物'}}</text>
+            <text class="badge {{item.currencyType === 'yuedou' ? 'badge-yuedou' : 'badge-score'}}">{{item.currencyType === 'yuedou' ? '约豆' : '积分'}}</text>
+          </view>
+        </view>
+      </view>
+      <view class="actions">
+        <button class="btn-ghost" size="mini" data-goods="{{item}}" bindtap="onShowAddModal">编辑</button>
+        <button class="btn-ghost" size="mini" data-goods="{{item}}" bindtap="onToggleStatus">{{item.status === 'active' ? '下架' : '上架'}}</button>
+        <button class="btn-danger-ghost" size="mini" data-goods="{{item}}" bindtap="onDeleteGoods">删除</button>
+      </view>
+    </view>
+  </block>
+
+  <!-- 兑换 / 发货 -->
+  <block wx:if="{{tab === 'redemptions'}}">
+    <view wx:if="{{loading}}" class="hint">加载中...</view>
+    <view wx:if="{{!loading && redemptionList.length === 0}}" class="empty">暂无待处理兑换</view>
+
+    <view wx:for="{{redemptionList}}" wx:key="_id" class="card red-card">
+      <view class="red-head">
+        <text class="red-name">{{item.goodsName}}</text>
+        <text class="badge {{item.status === 'pending' ? 'badge-wait' : 'badge-ship'}}">{{item.status === 'pending' ? '待发货' : '已发货'}}</text>
+      </view>
+      <view class="red-body">
+        <view class="row"><text class="muted">用户</text><text>{{item.nickname}}</text></view>
+        <view class="row"><text class="muted">时间</text><text>{{item.createdAtText}}</text></view>
+        <view class="row"><text class="muted">消耗</text><text>{{item.price}} {{item.currencyType === 'yuedou' ? '约豆' : '积分'}}</text></view>
+        <view class="row" wx:if="{{item.addressLine}}">
+          <text class="muted">地址</text>
+          <text class="addr">{{item.addressLine}}</text>
+        </view>
+      </view>
+      <view class="actions" wx:if="{{item.category === 'physical'}}">
+        <button wx:if="{{item.status === 'pending'}}" class="btn-primary" size="mini" data-item="{{item}}" bindtap="onShip">标记已发货</button>
+        <button wx:if="{{item.status === 'shipped'}}" class="btn-primary" size="mini" data-item="{{item}}" bindtap="onComplete">确认已完成</button>
+      </view>
+    </view>
+  </block>
+
+  <!-- 添加/编辑弹层 -->
+  <view class="mask" wx:if="{{showAddModal}}" catchtap="onHideAddModal">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-title">{{editGoods ? '编辑商品' : '添加商品'}}</view>
+
+      <view class="field">
+        <text class="label">名称</text>
+        <input class="input" placeholder="商品名称" value="{{form.name}}" data-field="name" bindinput="onFormInput" />
+      </view>
+      <view class="field">
+        <text class="label">描述</text>
+        <textarea class="textarea" placeholder="简介" value="{{form.description}}" data-field="description" bindinput="onFormInput" />
+      </view>
+      <view class="field">
+        <text class="label">图片链接</text>
+        <input class="input" placeholder="https://..." value="{{form.image}}" data-field="image" bindinput="onFormInput" />
+      </view>
+      <view class="field-row">
+        <view class="field half">
+          <text class="label">积分价</text>
+          <input class="input" type="number" placeholder="整数" value="{{form.price}}" data-field="price" bindinput="onFormInput" />
+        </view>
+        <view class="field half">
+          <text class="label">库存</text>
+          <input class="input" type="number" placeholder="件数" value="{{form.stock}}" data-field="stock" bindinput="onFormInput" />
+        </view>
+      </view>
+      <view class="field">
+        <text class="label">排序</text>
+        <input class="input" type="number" placeholder="数字越小越靠前" value="{{form.sort}}" data-field="sort" bindinput="onFormInput" />
+      </view>
+
+      <view class="field">
+        <text class="label">类型</text>
+        <view class="seg">
+          <view class="seg-i {{form.category === 'physical' ? 'on' : ''}}" data-cat="physical" bindtap="onPickCategory">实物</view>
+          <view class="seg-i {{form.category === 'virtual' ? 'on' : ''}}" data-cat="virtual" bindtap="onPickCategory">虚拟</view>
+        </view>
+      </view>
+
+      <view class="field">
+        <text class="label">货币类型</text>
+        <view class="seg">
+          <view class="seg-i {{form.currencyType === 'score' ? 'on' : ''}}" data-ct="score" bindtap="onPickCurrencyType">积分</view>
+          <view class="seg-i {{form.currencyType === 'yuedou' ? 'on' : ''}}" data-ct="yuedou" bindtap="onPickCurrencyType">约豆</view>
+        </view>
+      </view>
+
+      <view class="field">
+        <text class="label">状态</text>
+        <view class="seg">
+          <view class="seg-i {{form.status === 'active' ? 'on' : ''}}" data-st="active" bindtap="onPickStatus">上架</view>
+          <view class="seg-i {{form.status === 'inactive' ? 'on' : ''}}" data-st="inactive" bindtap="onPickStatus">下架</view>
+        </view>
+      </view>
+
+      <view class="sheet-actions">
+        <button class="btn-ghost wide" bindtap="onHideAddModal">取消</button>
+        <button class="btn-primary wide" bindtap="onSaveGoods">保存</button>
+      </view>
+    </view>
+  </view>
+</view>

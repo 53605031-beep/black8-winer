@@ -1,0 +1,55 @@
+<view class="container">
+
+  <view wx:if="{{!venue}}" class="card">
+    <view style="font-weight:700;">球房不存在</view>
+    <view class="muted" style="margin-top:10rpx;">可能已被删除</view>
+  </view>
+
+  <view wx:else>
+    <view class="venue-header card">
+      <view class="venue-name">{{venue.name}}</view>
+      <view class="row" style="margin-top:12rpx; align-items:flex-start;">
+        <view class="muted venue-address">{{venue.address}}</view>
+        <view class="distance-tag">{{venue.distanceKm}}km</view>
+      </view>
+      <view class="muted" style="margin-top:12rpx;">营业时间：{{venue.openHours}}</view>
+      <view style="margin-top:16rpx;">
+        <text wx:for="{{venue.tags}}" wx:key="*this" class="badge">{{item}}</text>
+      </view>
+      <view wx:if="{{isOwner}}" class="owner-badge">我是商家</view>
+    </view>
+
+    <view class="card action-bar">
+      <view class="row">
+        <button class="btn-primary action-main" bindtap="onPublishFromVenue">发起约局</button>
+        <button class="btn-ghost action-sub" bindtap="onNav">导航到店</button>
+        <button wx:if="{{isOwner}}" class="btn-owner" bindtap="onManageVenue">管理</button>
+      </view>
+    </view>
+
+    <view wx:if="{{venueMatches.length > 0}}">
+      <view class="section-title">正在招募</view>
+      <view wx:for="{{venueMatches}}" wx:key="_id" class="card match-item">
+        <view class="row" bindtap="onOpenMatch" data-match-id="{{item._id}}">
+          <view style="min-width:0;">
+            <view class="match-time">{{item.startAtText}}</view>
+            <view class="muted" style="margin-top:6rpx;">{{item.playTypeText}} · {{item.costModeText}} · {{item.durationMinutes}}分钟</view>
+          </view>
+          <view style="text-align:right;">
+            <view class="headcount-badge">{{item.headcountJoined || 0}}/{{item.headcountTarget || 2}}</view>
+            <view class="muted" style="margin-top:6rpx;font-size:22rpx;">{{item.hostNickname || item.host.nickname}}发起</view>
+          </view>
+        </view>
+        <view wx:if="{{isOwner}}" class="merchant-actions">
+          <button class="btn-ghost btn-ghost-danger" size="mini" data-match="{{item}}" bindtap="onCancelMatch">取消球局</button>
+        </view>
+      </view>
+    </view>
+
+    <view wx:else class="card empty-state">
+      <view class="muted">该球房暂无招募中的球局</view>
+      <button class="btn-primary" size="mini" style="margin-top:16rpx;" bindtap="onPublishFromVenue">发起第一局</button>
+    </view>
+  </view>
+
+</view>

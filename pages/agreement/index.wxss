@@ -1,0 +1,106 @@
+/* ========================================
+   pages/agreement/index.wxss - 用户协议/隐私政策 Glassmorphism
+   ======================================== */
+
+page {
+  background: transparent;
+  color: #ffffff;
+}
+
+.container {
+  padding: 0;
+}
+
+/* Tab切换 - 玻璃态版本 */
+.tab-bar {
+  display: flex;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(16px);
+  padding: 8rpx;
+  border-radius: 24rpx;
+  margin: 24rpx;
+  gap: 8rpx;
+}
+
+.tab-item {
+  flex: 1;
+  text-align: center;
+  padding: 18rpx 24rpx;
+  border-radius: 18rpx;
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.7);
+  transition: all 0.3s ease;
+}
+
+.tab-item.active {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 4rpx 16rpx rgba(6, 182, 212, 0.35);
+}
+
+/* 内容区 - 玻璃态卡片 */
+.content {
+  margin: 0 24rpx 24rpx;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1rpx solid rgba(255, 255, 255, 0.2);
+  border-radius: 28rpx;
+  padding: 32rpx;
+  box-shadow: 0 12rpx 40rpx rgba(102, 126, 234, 0.2);
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 32rpx;
+  padding-bottom: 24rpx;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.15);
+}
+
+.title {
+  font-size: 38rpx;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 12rpx;
+}
+
+.date {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* 章节样式 */
+.section {
+  margin-bottom: 28rpx;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 14rpx;
+}
+
+.section-content {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.8;
+}
+
+/* 页脚 */
+.footer {
+  margin-top: 32rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.15);
+  text-align: center;
+}
+
+.footer-text {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.6);
+}

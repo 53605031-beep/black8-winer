@@ -1,0 +1,57 @@
+{
+  "pages": [
+    "pages/matches/index",
+    "pages/nearby/index",
+    "pages/match-detail/index",
+    "pages/venue-detail/index",
+    "pages/leaderboard/index",
+    "pages/publish/index",
+    "pages/mine/index",
+    "pages/merchant-register/index",
+    "pages/agreement/index",
+    "pages/location-picker/index",
+    "pages/admin/index",
+    "pages/mall/index",
+    "pages/mall-detail/index",
+    "pages/mall-records/index",
+    "pages/admin-goods/index",
+    "pages/merchant/index",
+    "pages/score-records/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "约球8",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f5f5",
+    "backgroundTextStyle": "dark",
+    "enablePullDownRefresh": false
+  },
+  "tabBar": {
+    "color": "#666666",
+    "selectedColor": "#1a73e8",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/matches/index",
+        "text": "约局"
+      },
+      {
+        "pagePath": "pages/mall/index",
+        "text": "福利站"
+      },
+      {
+        "pagePath": "pages/mine/index",
+        "text": "我的"
+      }
+    ]
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "你的位置信息将用于查找附近的球房和球局"
+    }
+  },
+  "requiredPrivateInfos": ["chooseLocation", "getLocation"],
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

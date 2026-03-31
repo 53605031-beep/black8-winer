@@ -1,0 +1,189 @@
+<view class="container">
+
+  <view wx:if="{{!match}}" class="card">
+    <view style="font-weight:700;">球局不存在</view>
+    <view class="muted" style="margin-top: 10rpx;">可能已结束或被取消</view>
+  </view>
+
+  <view wx:else>
+
+    <!-- 基本信息 -->
+    <view class="card match-info-card">
+      <view class="title">{{match.venueName}}</view>
+      <view class="muted" style="margin-top: 10rpx;">
+        {{match.startAtText}} · {{match.durationMinutes}}分钟 · {{match.playTypeText}}
+      </view>
+      <view style="margin-top: 14rpx;" class="row">
+        <text class="badge">人数 {{match.headcountJoined || 0}}/{{match.headcountTarget || 2}}</text>
+        <text class="badge">费用 {{match.costModeText}}</text>
+        <text class="badge">水平 {{match.skillText}}</text>
+      </view>
+      <view class="muted" style="margin-top: 14rpx;">发起人：{{match.hostNickname || match.host.nickname}}</view>
+    </view>
+
+    <!-- 约豆规则卡片 -->
+    <view class="card yuedou-card">
+      <view class="row" style="align-items:center;">
+        <view style="font-weight:700; flex:1;">约豆规则</view>
+        <view class="muted" style="font-size:22rpx;" bindtap="onShowRules">查看详情 ›</view>
+      </view>
+      <view class="row" style="margin-top: 10rpx; flex-wrap:wrap;">
+        <text class="badge badge-yuedou">冻结 {{YUEDOU_FROZEN}}/人</text>
+        <text class="badge badge-win">赢 +{{YUEDOU_WINNER}}</text>
+        <text class="badge badge-lose">输 {{YUEDOU_LOSER}}</text>
+      </view>
+    </view>
+
+    <!-- 参与者列表 -->
+    <view class="card">
+      <view class="section-label">已加入 · {{match.participants.length}} 人</view>
+      <view wx:for="{{match.participants}}" wx:key="openid" class="participant-row">
+        <view wx:if="{{item.avatarUrl}}" class="avatar-img-wrap">
+          <image class="avatar-img" src="{{item.avatarUrl}}" mode="aspectFill" />
+        </view>
+        <view wx:else class="avatar-placeholder">{{item.nickname[0]}}</view>
+        <view style="min-width:0; flex:1;">
+          <view class="nickname">
+            {{item.nickname}}
+            <text wx:if="{{item.openid === match.hostOpenid}}" style="color:#4ade80; font-size:22rpx;">（发起人）</text>
+          </view>
+          <view class="muted" style="font-size:22rpx;">
+            <text style="color:#fbbf24;">● 已冻结 {{YUEDOU_FROZEN}} 约豆</text>
+            <text wx:if="{{item.locationVerified}}" style="color:#4ade80; margin-left:16rpx;">● 已到店</text>
+          </view>
+        </view>
+        <!-- 阶段3：选择状态 -->
+        <view wx:if="{{match.status === 'playing'}}" class="choice-status">
+          <text wx:if="{{item.resultChoice === 'win'}}"  class="choice-tag choice-win">赢了</text>
+          <text wx:elif="{{item.resultChoice === 'lose'}}" class="choice-tag choice-lose">输了</text>
+          <text wx:else class="choice-tag choice-wait">待选择</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 招募中（人数未满） -->
+    <view wx:if="{{match.status === 'recruiting' && match.headcountJoined < match.headcountTarget}}" class="card">
+      <view style="font-weight:700; margin-bottom:16rpx;">招募中</view>
+      <view wx:if="{{!hasJoined && !isHost}}">
+        <view class="muted" style="margin-bottom:16rpx;">
+          加入需冻结 {{YUEDOU_FROZEN}} 约豆，余额不足无法加入
+        </view>
+        <view class="row">
+          <button class="btn-primary" size="mini" bindtap="onJoin" loading="{{loading}}">加入约局</button>
+          <button class="btn-ghost" size="mini" bindtap="onLeave">退出约局</button>
+        </view>
+        <!-- 授权获取头像昵称提示（昵称为默认"球友"时显示） -->
+        <view wx:if="{{showAuthHint}}" class="auth-hint-box">
+          <view style="font-size:26rpx; color:#374151; font-weight:600; margin-bottom:12rpx;">请先授权获取头像和昵称</view>
+          <button class="auth-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+            微信授权获取头像昵称
+          </button>
+        </view>
+      </view>
+      <view wx:elif="{{hasJoined}}">
+        <view class="muted" style="margin-bottom:16rpx;">你已加入，等待更多人...</view>
+        <view class="row">
+          <button class="btn-ghost" size="mini" bindtap="onLeave">退出约局</button>
+        </view>
+      </view>
+      <view wx:elif="{{isHost}}">
+        <view class="muted" style="margin-bottom:16rpx;">你是发起人，等待球友加入...</view>
+        <view class="row">
+          <button class="btn-ghost" size="mini" bindtap="onLeave">撤销球局</button>
+        </view>
+      </view>
+    </view>
+
+    <!-- 满员待确认（发起人操作） -->
+    <view wx:elif="{{match.status === 'recruiting' && match.headcountJoined >= 2}}" class="card card-highlight">
+      <view style="font-weight:700; margin-bottom:16rpx;">✓ 已满员</view>
+      
+      <!-- 双方校验状态汇总 -->
+      <view class="location-check-row" style="margin-bottom:8rpx;">
+        <text class="location-check-label">你的校验</text>
+        <text class="location-check-status {{locationVerified ? 'ok' : 'wait'}}">
+          {{locationVerified ? '✓ 已到店' : '待校验'}}
+        </text>
+      </view>
+      <view class="location-check-row">
+        <text class="location-check-label">对方校验</text>
+        <text class="location-check-status {{otherVerified ? 'ok' : 'wait'}}">
+          {{otherVerified ? '✓ 已到店' : '待校验'}}
+        </text>
+      </view>
+      
+      <!-- 校验按钮（双方都能点） -->
+      <button wx:if="{{!locationVerified && hasJoined}}" class="btn-ghost" size="mini" bindtap="onVerifyLocation" style="margin-top:12rpx;">
+        我已到店，校验位置
+      </button>
+      
+      <view wx:if="{{isHost}}" style="margin-top:16rpx;">
+        <view wx:if="{{locationVerified && otherVerified}}" class="muted" style="margin-bottom:12rpx;">
+          双方已校验，请确认比赛开始
+        </view>
+        <button wx:if="{{locationVerified && otherVerified}}" class="btn-primary" size="mini" bindtap="onConfirmStart">确认开始比赛</button>
+        <view wx:else class="muted" style="font-size:24rpx;">等待双方完成位置校验...</view>
+      </view>
+      <view wx:elif="{{hasJoined}}" class="muted" style="margin-top:12rpx;">
+        {{locationVerified && otherVerified ? '双方已校验，等待发起人确认...' : (locationVerified ? '等待对方校验...' : '请先完成位置校验...')}}
+      </view>
+    </view>
+
+    <!-- 进行中：阶段3选择结果 -->
+    <view wx:elif="{{match.status === 'playing'}}" class="card card-playing">
+      <view style="font-weight:700; margin-bottom:16rpx;">⚡ 比赛进行中</view>
+
+      <!-- 已选完（结算中） -->
+      <view wx:if="{{bothReady}}" class="settle-info">
+        <view class="muted">双方已选完，等待结算...</view>
+      </view>
+
+      <!-- 已结算 -->
+      <view wx:elif="{{match.status === 'settled' || match.status === 'finished'}}">
+        <view class="muted" style="margin-bottom:8rpx;">比赛已结束</view>
+        <view wx:if="{{resultLabel}}" class="result-box">{{resultLabel}}</view>
+      </view>
+
+      <!-- 我还未选：选择结果 -->
+      <view wx:elif="{{!myChoice && hasJoined}}">
+        <view class="muted" style="margin-bottom:16rpx;">请选择比赛结果：</view>
+
+        <view class="row choice-row">
+          <view class="choice-btn choice-win-btn" bindtap="onSelectResult" data-choice="win">
+            <view class="choice-icon">🏆</view>
+            <view class="choice-label">我赢了</view>
+          </view>
+          <view class="choice-btn choice-lose-btn" bindtap="onSelectResult" data-choice="lose">
+            <view class="choice-icon">😅</view>
+            <view class="choice-label">我输了</view>
+          </view>
+        </view>
+
+        <view class="muted" style="font-size:22rpx; margin-top:12rpx; text-align:center;">
+          双方选完立即结算，结果不一致时重新协商
+        </view>
+      </view>
+
+      <!-- 我已选，等待对方 -->
+      <view wx:elif="{{myChoice && !bothReady}}">
+        <view class="muted" style="margin-bottom:12rpx;">你的选择：<text class="choice-tag-inline choice-{{myChoice}}">{{getChoiceText(myChoice)}}</text></view>
+        <view wx:if="{{opponentChoice}}" class="muted">对方已选择，等待结算...</view>
+        <view wx:else class="muted">等待对方选择...</view>
+      </view>
+
+      <!-- 未参与 -->
+      <view wx:if="{{!hasJoined && !isHost}}" class="muted">
+        你未参与此球局
+      </view>
+    </view>
+
+    <!-- 已结束（settled / finished） -->
+    <view wx:elif="{{match.status === 'settled' || match.status === 'finished'}}" class="card card-settled">
+      <view style="font-weight:700; margin-bottom:12rpx;">✓ 比赛已结束</view>
+      <view wx:if="{{resultLabel}}" class="result-box">{{resultLabel}}</view>
+      <view wx:else class="muted">比赛已完成</view>
+    </view>
+
+  </view>
+</view>
+

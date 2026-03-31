@@ -1,0 +1,296 @@
+/* ========================================
+   pages/matches/index.wxss - 约局列表（纯色风格）
+   ======================================== */
+
+/* 今日/明日 标签切换 */
+.tab-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  background: #ffffff;
+  border-radius: 50rpx;
+  padding: 6rpx;
+  margin-bottom: 24rpx;
+  align-self: flex-start;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.06);
+}
+
+.tab-item {
+  padding: 14rpx 40rpx;
+  border-radius: 40rpx;
+  font-size: 28rpx;
+  color: #666666;
+  transition: all 0.3s ease;
+}
+
+.tab-item.active {
+  background: #1a73e8;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* 球局卡片 */
+.match-card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+}
+
+.match-card:active {
+  transform: scale(0.98);
+  background: #fafafa;
+}
+
+/* 卡片头部：时间 + 状态 */
+.match-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+}
+
+.match-time {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #333333;
+}
+
+.match-date {
+  font-size: 24rpx;
+  color: #999999;
+  margin-left: 12rpx;
+}
+
+/* 状态胶囊 */
+.badge-recruiting {
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  color: #166534;
+  border-radius: 999rpx;
+  padding: 6rpx 16rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.badge-ongoing {
+  background: #fef3c7;
+  border: 1rpx solid #fcd34d;
+  color: #92400e;
+  border-radius: 999rpx;
+  padding: 6rpx 16rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.badge-ended {
+  background: #f5f5f5;
+  border: 1rpx solid #e0e0e0;
+  color: #666666;
+  border-radius: 999rpx;
+  padding: 6rpx 16rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+/* 球房信息行 */
+.venue-row {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-bottom: 12rpx;
+}
+
+.venue-icon {
+  font-size: 26rpx;
+  color: #999999;
+}
+
+.venue-name {
+  font-size: 26rpx;
+  color: #666666;
+}
+
+.venue-distance {
+  font-size: 22rpx;
+  color: #999999;
+  margin-left: auto;
+}
+
+/* 标签组 */
+.tag-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-bottom: 16rpx;
+}
+
+.tag-item {
+  background: #f0f0f0;
+  border-radius: 999rpx;
+  padding: 6rpx 14rpx;
+  font-size: 22rpx;
+  color: #666666;
+}
+
+/* 人数进度条 */
+.headcount-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.headcount-text {
+  font-size: 26rpx;
+  color: #333333;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.headcount-bar-wrap {
+  flex: 1;
+  height: 12rpx;
+  background: #eeeeee;
+  border-radius: 999rpx;
+  overflow: hidden;
+}
+
+.headcount-bar {
+  height: 100%;
+  background: #1a73e8;
+  border-radius: 999rpx;
+  transition: width 0.3s ease;
+}
+
+.headcount-bar.almost-full {
+  background: #f59e0b;
+}
+
+.headcount-bar.full {
+  background: #ef4444;
+}
+
+/* 参与者头像组 */
+.participants-row {
+  display: flex;
+  align-items: center;
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.avatar-group {
+  display: flex;
+  align-items: center;
+}
+
+.avatar-mini {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin-left: -12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20rpx;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.avatar-mini:first-child {
+  margin-left: 0;
+}
+
+.host-badge {
+  margin-left: auto;
+  background: #fef3c7;
+  border: 1rpx solid #fcd34d;
+  border-radius: 999rpx;
+  padding: 4rpx 12rpx;
+  font-size: 20rpx;
+  color: #92400e;
+}
+
+/* 无效局降权展示样式 */
+.invalid-match {
+  opacity: 0.5;
+  background: #fafafa;
+}
+
+.invalid-badge {
+  display: inline-block;
+  padding: 4rpx 12rpx;
+  border-radius: 12rpx;
+  background: #f5f5f5;
+  color: #999999;
+  font-size: 22rpx;
+  font-weight: 500;
+  margin-bottom: 10rpx;
+}
+
+.invalid-text {
+  color: #999999 !important;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 120rpx 60rpx;
+  gap: 24rpx;
+}
+
+.empty-icon {
+  font-size: 100rpx;
+  color: #cccccc;
+}
+
+.empty-text {
+  font-size: 30rpx;
+  color: #999999;
+  text-align: center;
+}
+
+/* 筛选按钮 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-chip {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 12rpx 20rpx;
+  background: #ffffff;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #666666;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.filter-chip.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #ffffff;
+}
+
+.filter-icon {
+  font-size: 22rpx;
+}

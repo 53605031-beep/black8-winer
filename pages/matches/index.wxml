@@ -1,0 +1,52 @@
+<view class="container">
+  <view class="row" style="margin-bottom: 18rpx;">
+    <view>
+      <view class="title">约局</view>
+      <view class="muted" style="margin-top: 6rpx;">筛选后展示附近球局</view>
+    </view>
+  </view>
+
+  <!-- 今日 / 明日 标签切换 -->
+  <view class="tab-bar">
+    <view class="tab-item {{dayTab === 'today' ? 'active' : ''}}" bindtap="onSwitchDay" data-day="today">今日</view>
+    <view class="tab-item {{dayTab === 'tomorrow' ? 'active' : ''}}" bindtap="onSwitchDay" data-day="tomorrow">明日</view>
+  </view>
+
+  <view class="card">
+    <view class="row">
+      <text class="badge">距离：{{filters.radiusKm}}km</text>
+      <text class="badge">玩法：{{filters.playType}}</text>
+    </view>
+    <view class="row" style="margin-top: 14rpx;">
+      <button class="btn-ghost" size="mini" bindtap="onOpenFilters">筛选</button>
+      <button class="btn-primary" size="mini" bindtap="onGoPublish">我来发起</button>
+    </view>
+  </view>
+
+  <view wx:for="{{matches}}" wx:key="_id" class="card {{item.isInvalid ? 'invalid-match' : ''}}" bindtap="{{item.isInvalid ? '' : 'onOpenMatch'}}" data-match-id="{{item._id}}">
+    <!-- 无效局提示 -->
+    <view wx:if="{{item.isInvalid}}" class="invalid-badge">已结束</view>
+    
+    <view class="row">
+      <view style="min-width: 0;">
+        <view style="font-weight: 700;">{{item.venueName}}</view>
+        <view class="muted" style="margin-top: 6rpx;">
+          {{item.startAtText}} · {{item.playTypeText}} · {{item.costModeText}}
+        </view>
+      </view>
+      <view class="muted">{{item.distanceText}}</view>
+    </view>
+
+    <view class="row" style="margin-top: 14rpx;">
+      <view class="muted {{item.isInvalid ? 'invalid-text' : ''}}">发起人：{{item.hostNickname}}</view>
+      <view class="muted {{item.isInvalid ? 'invalid-text' : ''}}">{{item.headcountJoined || 0}}/{{item.headcountTarget || 2}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{matches.length === 0}}" class="card" style="text-align:center;">
+    <view style="font-weight:700;">附近暂无球局</view>
+    <view class="muted" style="margin-top: 10rpx;">你来发起第一局吧</view>
+    <button class="btn-primary" size="mini" style="margin-top: 16rpx;" bindtap="onGoPublish">发起约局</button>
+  </view>
+</view>
+

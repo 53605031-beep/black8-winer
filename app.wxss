@@ -1,0 +1,208 @@
+/* ========================================
+   约球8 - 全局样式（纯色风格）
+   ======================================== */
+
+/* 全局页面背景 */
+page {
+  background-color: #f5f5f5;
+  min-height: 100vh;
+  color: #333333;
+  font-size: 28rpx;
+}
+
+/* 容器 */
+.container {
+  padding: 24rpx;
+}
+
+/* 卡片 - 白色背景 + 阴影 */
+.card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+  color: #333333;
+}
+
+.card + .card {
+  margin-top: 20rpx;
+}
+
+/* 行布局 */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+/* 次要文字 */
+.muted {
+  color: #999999;
+}
+
+/* 标题 */
+.title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #333333;
+}
+
+/* 主按钮 */
+.btn-primary {
+  background: #1a73e8;
+  color: #ffffff;
+  border: none;
+  border-radius: 12rpx;
+  padding: 18rpx 28rpx;
+  font-size: 28rpx;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.btn-primary::after {
+  border: none;
+}
+
+/* 次要按钮 */
+.btn-ghost {
+  background: #ffffff;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  color: #333333;
+  padding: 18rpx 22rpx;
+  font-size: 28rpx;
+  line-height: 1;
+}
+
+.btn-ghost::after {
+  border: none;
+}
+
+/* 胶囊标签 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  background: #f0f0f0;
+  color: #333333;
+  font-size: 22rpx;
+}
+
+/* 约豆/积分显示行 */
+.yuedou-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.yuedou-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+}
+
+.yuedou-divider {
+  width: 1rpx;
+  height: 40rpx;
+  background: #eeeeee;
+}
+
+.yuedou-num {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #1a73e8;
+}
+
+.yuedou-label {
+  font-size: 20rpx;
+  color: #999999;
+}
+
+/* 每日礼包入口 */
+.daily-bonus-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 20rpx;
+  background: #fffbeb;
+  border: 1rpx solid #fde68a;
+  border-radius: 16rpx;
+}
+
+.daily-bonus-row.daily-claimed {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.daily-bonus-icon {
+  font-size: 40rpx;
+  flex-shrink: 0;
+}
+
+.daily-bonus-text {
+  flex: 1;
+}
+
+.daily-bonus-arrow {
+  font-size: 24rpx;
+  color: #999999;
+  flex-shrink: 0;
+}
+
+/* 状态标签 */
+.badge-success {
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  color: #166534;
+}
+
+.badge-warning {
+  background: #fef3c7;
+  border: 1rpx solid #fcd34d;
+  color: #92400e;
+}
+
+.badge-error {
+  background: #fee2e2;
+  border: 1rpx solid #fca5a5;
+  color: #991b1b;
+}
+
+.badge-info {
+  background: #dbeafe;
+  border: 1rpx solid #93c5fd;
+  color: #1e40af;
+}
+
+/* 底部安全区 */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 分割线 */
+.divider {
+  height: 1rpx;
+  background: #eeeeee;
+  margin: 16rpx 0;
+}
+
+/* 输入框 */
+input, textarea {
+  background: #ffffff;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  color: #333333;
+  padding: 16rpx 20rpx;
+  font-size: 28rpx;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #cccccc;
+}

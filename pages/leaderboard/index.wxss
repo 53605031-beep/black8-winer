@@ -1,0 +1,223 @@
+/* ========================================
+   pages/leaderboard/index.wxss - 排行榜（纯色风格）
+   ======================================== */
+
+/* 前三名卡片容器 */
+.top-three-card {
+  margin-bottom: 24rpx;
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 32rpx 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.top-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.top-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+/* 头像 */
+.avatar-placeholder {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  font-size: 38rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+}
+
+/* 第一名特殊样式 */
+.top-item:first-child .avatar-placeholder {
+  width: 110rpx;
+  height: 110rpx;
+  border: 4rpx solid #fbbf24;
+}
+
+/* 第二名特殊样式 */
+.top-item:nth-child(2) .avatar-placeholder {
+  width: 130rpx;
+  height: 130rpx;
+  border: 4rpx solid #d1d5db;
+}
+
+/* 第三名特殊样式 */
+.top-item:last-child .avatar-placeholder {
+  border: 4rpx solid #d97706;
+}
+
+.crown {
+  font-size: 36rpx;
+  margin-bottom: -6rpx;
+  line-height: 1;
+}
+
+.top-nickname {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #333333;
+  margin-top: 12rpx;
+  max-width: 140rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.top-score {
+  font-size: 24rpx;
+  color: #999999;
+  margin-top: 6rpx;
+}
+
+.rank-name-text {
+  font-size: 22rpx;
+  font-weight: 700;
+  margin-top: 6rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  background: #f5f5f5;
+  border: 1rpx solid #e0e0e0;
+  color: #666666;
+}
+
+/* 排名列表卡片 */
+.rank-list-card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  overflow: hidden;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.rank-row {
+  display: flex;
+  align-items: center;
+  padding: 24rpx;
+  border-bottom: 1rpx solid #f5f5f5;
+  transition: background 0.2s ease;
+}
+
+.rank-row:last-child {
+  border-bottom: none;
+}
+
+.rank-row:active {
+  background: #fafafa;
+}
+
+.rank-num {
+  width: 52rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #666666;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* 前三名数字特殊颜色 */
+.rank-row:nth-child(1) .rank-num,
+.rank-row:nth-child(2) .rank-num,
+.rank-row:nth-child(3) .rank-num {
+  color: #f59e0b;
+}
+
+.avatar-sm {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 18rpx;
+  flex-shrink: 0;
+}
+
+.nickname {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #333333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-badge-sm {
+  border: 2rpx solid;
+  border-radius: 999rpx;
+  padding: 4rpx 14rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  margin-left: auto;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+
+/* 排名颜色匹配 */
+.rank-badge-gold {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.rank-badge-silver {
+  background: #f5f5f5;
+  border-color: #d1d5db;
+  color: #666666;
+}
+
+.rank-badge-bronze {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 120rpx 60rpx;
+  gap: 24rpx;
+}
+
+.empty-icon {
+  font-size: 100rpx;
+  color: #cccccc;
+}
+
+.empty-text {
+  font-size: 30rpx;
+  color: #999999;
+  text-align: center;
+}
+
+/* 通用卡片样式覆盖 */
+.card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+  color: #333333;
+}
+
+.card + .card {
+  margin-top: 20rpx;
+}

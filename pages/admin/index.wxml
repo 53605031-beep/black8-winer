@@ -1,0 +1,212 @@
+<view class="container">
+  <!-- 顶部 Tab -->
+  <view class="tab-bar">
+    <view class="tab {{tab === 'pending' ? 'tab-active' : ''}}" bindtap="onSwitchTab" data-tab="pending">
+      待审核
+      <view wx:if="{{pendingList.length > 0}}" class="tab-badge">{{pendingList.length}}</view>
+    </view>
+    <view class="tab {{tab === 'processed' ? 'tab-active' : ''}}" bindtap="onSwitchTab" data-tab="processed">
+      已处理
+    </view>
+    <view class="tab {{tab === 'venues' ? 'tab-active' : ''}}" bindtap="onSwitchTab" data-tab="venues">
+      商户管理
+    </view>
+    <view class="tab-right">
+      <button class="btn-ghost" size="mini" bindtap="onRefresh">刷新</button>
+    </view>
+  </view>
+
+  <!-- 待审核列表 -->
+  <view wx:if="{{tab === 'pending'}}">
+    <view wx:if="{{pendingList.length === 0}}" class="empty-state">
+      <svg width="80" height="80" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.5"/>
+        <path d="M8 12l3 3 5-5" stroke="#d1d5db" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <view class="empty-text">暂无待审核申请</view>
+    </view>
+
+    <view wx:for="{{pendingList}}" wx:key="_id" class="card app-card">
+      <view class="app-header">
+        <view style="font-weight:700; font-size:32rpx;">{{item.venueName}}</view>
+        <view class="badge badge-orange">待审核</view>
+      </view>
+
+      <view class="app-info">
+        <view class="info-row">
+          <text class="muted">申请人</text>
+          <text>{{item.applicantNickname}}</text>
+        </view>
+        <view class="info-row">
+          <text class="muted">联系电话</text>
+          <text>{{item.venuePhone}}</text>
+        </view>
+        <view class="info-row">
+          <text class="muted">营业时间</text>
+          <text>{{item.venueOpenHours}}</text>
+        </view>
+        <view class="info-row" wx:if="{{item.venueTags.length > 0}}">
+          <text class="muted">球房特色</text>
+          <view class="tags-inline">
+            <text wx:for="{{item.venueTags}}" wx:key="*this" class="badge">{{item}}</text>
+          </view>
+        </view>
+        <view class="info-row">
+          <text class="muted">球房地址</text>
+          <text style="max-width:380rpx; text-align:right;">{{item.venueAddress}}</text>
+        </view>
+      </view>
+
+      <view class="app-actions">
+        <button class="btn-ghost" size="mini" data-app="{{item}}" bindtap="onReject">拒绝</button>
+        <button class="btn-primary" size="mini" data-app="{{item}}" bindtap="onApprove">通过</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 已处理列表 -->
+  <view wx:if="{{tab === 'processed'}}">
+    <view wx:if="{{processedList.length === 0}}" class="empty-state">
+      <view class="empty-text">暂无处理记录</view>
+    </view>
+
+    <view wx:for="{{processedList}}" wx:key="_id" class="card app-card">
+      <view class="app-header">
+        <view style="font-weight:700; font-size:32rpx;">{{item.venueName}}</view>
+        <view class="badge {{item.status === 'approved' ? 'badge-green' : 'badge-red'}}">
+          {{item.status === 'approved' ? '已通过' : '已拒绝'}}
+        </view>
+      </view>
+
+      <view class="app-info">
+        <view class="info-row">
+          <text class="muted">申请人</text>
+          <text>{{item.applicantNickname}}</text>
+        </view>
+        <view class="info-row">
+          <text class="muted">提交时间</text>
+          <text>{{item.createdAt}}</text>
+        </view>
+        <view wx:if="{{item.status === 'rejected' && item.rejectReason}}" class="info-row">
+          <text class="muted">拒绝原因</text>
+          <text style="color:#ef4444;">{{item.rejectReason}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 商户管理列表 -->
+  <view wx:if="{{tab === 'venues'}}">
+    <view class="list-toolbar">
+      <text class="toolbar-hint">共 {{venueList.length}} 家商户</text>
+      <button class="btn-primary" size="mini" bindtap="onShowAddModal">添加商户</button>
+    </view>
+
+    <view wx:if="{{venueList.length === 0}}" class="empty-state">
+      <view class="empty-text">暂无商户</view>
+    </view>
+
+    <view wx:for="{{venueList}}" wx:key="_id" class="card venue-card">
+      <view class="app-header">
+        <view style="font-weight:700; font-size:32rpx;">{{item.name}}</view>
+        <view class="badge {{item.status === 'active' ? 'badge-green' : 'badge-gray'}}">
+          {{item.status === 'active' ? '营业中' : item.status}}
+        </view>
+      </view>
+
+      <view class="app-info">
+        <view class="info-row">
+          <text class="muted">地址</text>
+          <text>{{item.address || '未填写'}}</text>
+        </view>
+        <view class="info-row">
+          <text class="muted">电话</text>
+          <text>{{item.phone || '未填写'}}</text>
+        </view>
+        <view class="info-row">
+          <text class="muted">营业</text>
+          <text>{{item.openHours || '未填写'}}</text>
+        </view>
+        <view class="info-row" wx:if="{{item.tags.length > 0}}">
+          <text class="muted">特色</text>
+          <view class="tags-inline">
+            <text wx:for="{{item.tags}}" wx:key="*this" class="badge">{{item}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="app-actions">
+        <button class="btn-ghost" size="mini" data-venue="{{item}}" bindtap="onDeleteVenue">删除</button>
+      </view>
+    </view>
+  </view>
+
+</view>
+
+<!-- 添加商户弹窗 -->
+<view class="modal-mask {{showAddModal ? 'show' : ''}}" bindtap="onHideAddModal">
+  <view class="modal-sheet" catchtap="noop">
+    <view class="modal-handle"></view>
+    <view class="modal-title">添加商户</view>
+
+    <view class="form-group">
+      <text class="form-label">球房名称 *</text>
+      <input class="form-input" placeholder="点击「选择位置」可自动填入" value="{{addForm.name}}" bindinput="onAddFormInput" data-field="name" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">详细地址</text>
+      <input class="form-input" placeholder="点击「选择位置」可自动填入" value="{{addForm.address}}" bindinput="onAddFormInput" data-field="address" />
+    </view>
+
+    <view class="form-row">
+      <view class="form-group">
+        <text class="form-label">联系电话</text>
+        <input class="form-input" type="tel" placeholder="手机/座机" value="{{addForm.phone}}" bindinput="onAddFormInput" data-field="phone" />
+      </view>
+      <view class="form-group">
+        <text class="form-label">营业时间</text>
+        <input class="form-input" placeholder="如 10:00-23:00" value="{{addForm.openHours}}" bindinput="onAddFormInput" data-field="openHours" />
+      </view>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">位置定位</text>
+      <view class="location-picker {{addForm.latitude ? 'picked' : ''}}" bindtap="onChooseLocation">
+        <view class="location-text" wx:if="{{addForm.name && addForm.address}}">
+          <view class="location-name">{{addForm.name}}</view>
+          <view class="location-addr">{{addForm.address}}</view>
+        </view>
+        <text wx:else class="location-placeholder">点击搜索地点（名称+地址自动填入）</text>
+        <text class="location-icon">📍</text>
+      </view>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">球房特色</text>
+      <view class="tag-selector">
+        <view wx:for="{{tagOptions}}" wx:key="*this"
+          class="tag-option {{addForm.tags.indexOf(item) >= 0 ? 'selected' : ''}}"
+          data-tag="{{item}}" bindtap="onToggleAddTag">{{item}}</view>
+      </view>
+    </view>
+
+    <view class="modal-actions">
+      <button class="btn-cancel" bindtap="onHideAddModal">取消</button>
+      <button class="btn-confirm" bindtap="onAddVenue">确认添加</button>
+    </view>
+  </view>
+</view>
+
+<!-- 删除确认弹窗 -->
+<view class="modal-mask {{showDeleteModal ? 'show' : ''}}" bindtap="onHideDeleteModal">
+  <view class="confirm-sheet" catchtap="noop">
+    <view class="confirm-icon">🗑️</view>
+    <view class="confirm-title">确认删除</view>
+    <view class="confirm-message">确定要删除「{{deleteTarget.name}}」吗？<br/>删除后无法恢复。</view>
+    <view class="modal-actions">
+      <button class="btn-cancel" bindtap="onHideDeleteModal">取消</button>
+      <button class="btn-danger" bindtap="onConfirmDelete">确认删除</button>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,23 @@
+<view class="container">
+  <view class="loading-wrap" wx:if="{{loading}}">
+    <view class="loading-icon">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="#ccc" stroke-width="2"/>
+        <path d="M12 2a10 10 0 0 1 10 10" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </view>
+    <text class="loading-text">正在打开地图...</text>
+  </view>
+
+  <view class="fallback" wx:else>
+    <view class="fallback-icon">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="3" fill="#3b82f6"/>
+        <circle cx="12" cy="12" r="8" stroke="#3b82f6" stroke-width="2" fill="none"/>
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="#ccc" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </view>
+    <text class="fallback-text">地图选择器未响应</text>
+    <view class="fallback-btn" bindtap="_openMapPicker">重新选择</view>
+  </view>
+</view>

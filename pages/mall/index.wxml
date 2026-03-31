@@ -1,0 +1,187 @@
+<view class="container">
+  <!-- 头部：约豆/积分余额 -->
+  <view class="header">
+    <view class="balance-row">
+      <view class="balance-item">
+        <text class="balance-icon bean-icon">豆</text>
+        <view class="balance-info">
+          <text class="balance-label">约豆</text>
+          <text class="balance-value">{{myYuedou}}</text>
+        </view>
+      </view>
+      <view class="balance-item">
+        <text class="balance-icon score-icon">分</text>
+        <view class="balance-info">
+          <text class="balance-label">积分</text>
+          <text class="balance-value">{{myScore}}</text>
+        </view>
+      </view>
+    </view>
+    <view class="header-actions">
+      <button class="btn-action" bindtap="goToRecords">约豆明细</button>
+      <button class="btn-action secondary" bindtap="goToExchangeRecords">兑换记录</button>
+    </view>
+  </view>
+
+  <!-- 福利站说明 + 跑马灯 -->
+  <view class="tip-bar">
+    <text class="tip-text">赢比赛获得约豆，参与约局获得积分</text>
+    <view class="marquee-wrap">
+      <view class="marquee-track">
+        <text class="marquee-text">{{marqueeText}}　　</text>
+        <text class="marquee-text">{{marqueeText}}　　</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 球房筛选 -->
+  <view class="venue-selector-bar" wx:if="{{accessibleVenues.length > 0}}" bindtap="openVenuePicker">
+    <view class="venue-current">
+      <text class="venue-current-name">{{selectedVenueId ? selectedVenueName : '全部球房'}}</text>
+      <text class="venue-current-count" wx:if="{{selectedVenueId}}">×{{selectedVenue.visitCount || 0}}</text>
+    </view>
+    <view class="venue-picker-arrow">
+      <text class="arrow-icon">▼</text>
+    </view>
+  </view>
+
+  <!-- 空状态：没参与过任何球局 -->
+  <view wx:if="{{!loading && accessibleVenues.length === 0}}" class="empty-venues">
+    <text class="empty-icon">🏏</text>
+    <text class="empty-title">先去约个球局吧</text>
+    <text class="empty-desc">参与过球房的比赛后，才能兑换该球房的专属福利</text>
+    <button class="btn-primary" bindtap="goToMatches">去约局</button>
+  </view>
+
+  <!-- 货币类型切换：积分在前，约豆敬请期待 -->
+  <view class="currency-section" wx:if="{{accessibleVenues.length > 0}}">
+    <view class="currency-tabs">
+      <view
+        class="currency-tab tab-score {{currencyType === 'score' ? 'active' : ''}}"
+        bindtap="onSwitchCurrency"
+        data-type="score"
+      >
+        <text class="tab-icon">分</text>
+        <text>积分专区</text>
+      </view>
+      <view
+        class="currency-tab tab-yuedou {{currencyType === 'yuedou' ? 'active' : ''}}"
+        bindtap="onSwitchCurrency"
+        data-type="yuedou"
+      >
+        <text class="tab-icon">豆</text>
+        <text>约豆专区</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 约豆专区：敬请期待 -->
+  <view class="coming-soon-panel" wx:if="{{!loading && accessibleVenues.length > 0 && currencyType === 'yuedou'}}">
+    <text class="coming-soon-icon">🎁</text>
+    <text class="coming-soon-title">敬请期待</text>
+    <text class="coming-soon-desc">约豆兑换福利即将上线，可先使用积分专区兑换</text>
+  </view>
+
+  <!-- 商品列表（仅积分专区展示） -->
+  <view class="goods-list" wx:if="{{!loading && accessibleVenues.length > 0 && currencyType === 'score'}}">
+    <view
+      wx:for="{{goodsList}}"
+      wx:key="_id"
+      class="goods-card"
+      bindtap="goToDetail"
+      data-goods="{{item}}"
+    >
+      <view class="goods-image">
+        <image wx:if="{{item.image}}" src="{{item.image}}" mode="aspectFill" />
+        <view wx:else class="goods-image-placeholder">{{item.name.substring(0,1)}}</view>
+        <view class="goods-currency-tag {{item.currencyType === 'yuedou' ? 'tag-yuedou' : 'tag-score'}}">
+          {{item.currencyType === 'yuedou' ? '约豆' : '积分'}}
+        </view>
+        <view wx:if="{{item.venueId && selectedVenueId}}" class="venue-badge">
+          球房专属
+        </view>
+      </view>
+      <view class="goods-info">
+        <view class="goods-name">{{item.name}}</view>
+        <view class="goods-desc">{{item.description || '暂无描述'}}</view>
+        <view class="goods-bottom">
+          <text class="goods-price {{item.currencyType === 'yuedou' ? 'price-yuedou' : 'price-score'}}">
+            {{item.price}} {{item.currencyType === 'yuedou' ? '约豆' : '积分'}}
+          </text>
+          <text class="goods-stock {{item.stock > 0 ? '' : 'empty'}}">
+            {{item.stock > 0 ? '剩'+item.stock : '已兑完'}}
+          </text>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{goodsList.length === 0}}" class="empty-tip">
+      <text>该球房暂无专属福利，敬请期待~</text>
+    </view>
+  </view>
+
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="loading-tip">加载中...</view>
+
+  <!-- 球房选择弹层 -->
+  <view class="venue-picker-mask {{venuePickerVisible ? 'show' : ''}}" wx:if="{{venuePickerVisible || venuePickerRendered}}" bindtap="closeVenuePicker">
+    <view class="venue-picker-panel {{venuePickerVisible ? 'slide-up' : 'slide-down'}}" catchtap="noop">
+      <!-- 标题栏 -->
+      <view class="picker-header">
+        <text class="picker-title">选择球房</text>
+        <view class="picker-close" bindtap="closeVenuePicker">✕</view>
+      </view>
+      <!-- 规则说明 -->
+      <view class="venue-rule-tip">
+        <text class="rule-icon">ℹ️</text>
+        <text class="rule-text">在哪里获得的积分/约豆，就在该球房兑换福利</text>
+      </view>
+      <!-- 搜索框 -->
+      <view class="picker-search-wrap">
+        <input
+          class="picker-search"
+          placeholder="搜索球房名称"
+          value="{{venueSearchKeyword}}"
+          bindinput="onVenueSearchInput"
+        />
+      </view>
+      <!-- 列表 -->
+      <scroll-view
+        class="picker-list"
+        scroll-y
+        enhanced
+        bounces
+      >
+        <!-- 全部球房 -->
+        <view
+          class="picker-item {{selectedVenueId === null ? 'active' : ''}}"
+          bindtap="onPickVenue"
+          data-venueid=""
+          data-venuename="全部球房"
+        >
+          <text>全部球房</text>
+          <text class="picker-check" wx:if="{{selectedVenueId === null}}">✓</text>
+        </view>
+        <!-- 过滤后的球房 -->
+        <view
+          wx:for="{{filteredVenues}}"
+          wx:key="venueId"
+          class="picker-item {{selectedVenueId === item.venueId ? 'active' : ''}}"
+          bindtap="onPickVenue"
+          data-venueid="{{item.venueId}}"
+          data-venuename="{{item.venueName}}"
+        >
+          <view class="picker-item-inner">
+            <text class="picker-item-name">{{item.venueName}}</text>
+            <text class="picker-item-count">×{{item.visitCount}}</text>
+          </view>
+          <text class="picker-check" wx:if="{{selectedVenueId === item.venueId}}">✓</text>
+        </view>
+        <!-- 无结果 -->
+        <view class="picker-empty" wx:if="{{filteredVenues.length === 0 && venueSearchKeyword}}">
+          <text>没有找到「{{venueSearchKeyword}}」</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+</view>

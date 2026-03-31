@@ -1,0 +1,9 @@
+{
+  "name": "adminMerchant",
+  "version": "1.0.0",
+  "description": "管理员审批商家入驻（云函数写库，绕过客户端 venues 仅创建者可写限制）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

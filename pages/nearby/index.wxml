@@ -1,0 +1,33 @@
+<view class="container">
+  <view class="row" style="margin-bottom: 18rpx;">
+    <view>
+      <view class="title">附近球房</view>
+      <view class="muted" style="margin-top: 6rpx;">获取定位后展示附近球房</view>
+    </view>
+    <view class="row">
+      <button class="btn-ghost" size="mini" bindtap="onRefresh">刷新</button>
+    </view>
+  </view>
+
+  <view wx:for="{{venues}}" wx:key="_id" class="card venue-card" bindtap="onOpenVenueDetail" data-venue-id="{{item._id}}">
+    <view class="row">
+      <view style="min-width: 0;">
+        <view style="font-weight: 700;">{{item.name}}</view>
+        <view class="muted" style="margin-top: 6rpx;">{{item.address}}</view>
+      </view>
+      <view class="muted">{{item.distanceText}}</view>
+    </view>
+
+    <view style="margin-top: 14rpx;" class="row">
+      <view class="muted">营业：{{item.openHours}}</view>
+      <view>
+        <text wx:for="{{item.tags}}" wx:key="*this" class="badge" style="margin-left: 10rpx;">{{item}}</text>
+      </view>
+    </view>
+
+    <view class="row" style="margin-top: 18rpx;">
+      <button class="btn-primary" size="mini" catchtap="onCreateFromVenue" data-venue-id="{{item._id}}">发起约局</button>
+      <button class="btn-ghost" size="mini" data-venue-id="{{item._id}}" bindtap="onNav">导航到店</button>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,130 @@
+/* ========================================
+   pages/score-records/index.wxss - 积分记录 Glassmorphism
+   ======================================== */
+
+.container {
+  min-height: 100vh;
+  background: transparent;
+}
+
+/* ── 汇总卡片 - 玻璃态深色版本 ── */
+.summary-card {
+  background: rgba(102, 126, 234, 0.4);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1rpx solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  padding: 48rpx 32rpx;
+  margin: 24rpx;
+  border-radius: 28rpx;
+  box-shadow: 0 12rpx 40rpx rgba(102, 126, 234, 0.25);
+}
+
+.summary-title {
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #fbbf24;
+  margin-bottom: 12rpx;
+}
+
+.summary-desc {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── 列表 - 玻璃态版本 ── */
+.records-section {
+  padding: 24rpx;
+}
+
+.record-list {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1rpx solid rgba(255, 255, 255, 0.2);
+  border-radius: 24rpx;
+  overflow: hidden;
+  box-shadow: 0 8rpx 32rpx rgba(31, 38, 135, 0.15);
+}
+
+.record-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 32rpx;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.1);
+  transition: background 0.2s ease;
+}
+
+.record-item:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.record-item:last-child {
+  border-bottom: none;
+}
+
+.record-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.record-type {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.record-date {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.record-right {
+  display: flex;
+  align-items: baseline;
+  gap: 6rpx;
+}
+
+.record-amount {
+  font-size: 38rpx;
+  font-weight: 700;
+}
+
+.record-amount.gain {
+  color: #fbbf24;
+}
+
+.record-amount.spend {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.record-unit {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── 空状态 ── */
+.empty-tip {
+  text-align: center;
+  padding: 120rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 28rpx;
+}
+
+.empty-sub {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.loading-tip {
+  text-align: center;
+  padding: 100rpx 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 28rpx;
+}

@@ -1,0 +1,35 @@
+<view class="container">
+  <!-- 加载状态 -->
+  <view wx:if="{{loading}}" class="loading-tip">加载中...</view>
+
+  <!-- 记录列表 -->
+  <view class="record-list" wx:elif="{{records.length > 0}}">
+    <view wx:for="{{records}}" wx:key="_id" class="record-card">
+      <view class="record-header">
+        <image wx:if="{{item.goodsImage}}" class="goods-thumb" src="{{item.goodsImage}}" mode="aspectFill" />
+        <view wx:else class="goods-thumb-placeholder">{{item.goodsName.substring(0,1)}}</view>
+        <view class="record-info">
+          <view class="goods-name">{{item.goodsName}}</view>
+          <view class="goods-price {{item.currencyType === 'yuedou' ? 'price-yuedou' : 'price-score'}}">{{item.price}} {{item.currencyType === 'yuedou' ? '约豆' : '积分'}}</view>
+        </view>
+        <view class="status-badge {{item.status === 'completed' ? 'ok' : (item.status === 'pending' ? 'wait' : 'shipped')}}">
+          {{item.status === 'completed' ? '已完成' : (item.status === 'pending' ? '待发货' : '已发货')}}
+        </view>
+      </view>
+
+      <!-- 收货信息 -->
+      <view wx:if="{{item.address}}" class="address-info">
+        <text class="address-text">{{item.address.name}} {{item.address.phone}}\n{{item.address.address}}</text>
+      </view>
+
+      <!-- 兑换时间 -->
+      <view class="record-time">{{formatDate(item.createdAt)}}</view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view wx:else class="empty-tip">
+    <text>暂无兑换记录</text>
+    <navigator url="/pages/mall/index" class="mall-link">去逛逛商城</navigator>
+  </view>
+</view>

@@ -1,0 +1,32 @@
+<view class="container">
+
+  <view class="card top-three-card">
+    <view class="top-row">
+      <view wx:for="{{topThree}}" wx:key="_id" class="top-item">
+        <view class="avatar-placeholder" style="{{item._id === currentOpenid ? 'border: 4rpx solid #FFD700;' : ''}}">{{item.nickname[0]}}</view>
+        <view wx:if="{{item.rank === 1}}" class="crown">🥇</view>
+        <view wx:if="{{item.rank === 2}}" class="crown">🥈</view>
+        <view wx:if="{{item.rank === 3}}" class="crown">🥉</view>
+        <view class="top-nickname">{{item.nickname}}</view>
+        <view class="top-score">{{item.score}}分</view>
+        <view class="rank-name-text" style="color:{{item.rankColor}};">{{item.rankName}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card rank-list-card">
+    <view wx:for="{{restList}}" wx:key="_id" class="rank-row">
+      <view class="rank-num" style="{{item.rank <= 3 ? 'color:' + item.rankColor : ''}}">{{item.rank}}</view>
+      <view class="avatar-sm">{{item.nickname[0]}}</view>
+      <view style="min-width:0; flex:1;">
+        <view class="nickname">{{item.nickname}}</view>
+        <view class="muted" style="font-size:22rpx;">{{item.totalWin}}胜 {{item.totalLose}}负</view>
+      </view>
+      <view style="text-align:right;">
+        <view style="font-size:30rpx; font-weight:700;">{{item.score}}</view>
+        <view class="rank-badge-sm" style="color:{{item.rankColor}}; border-color:{{item.rankColor}};">{{item.rankName}}</view>
+      </view>
+    </view>
+  </view>
+
+</view>

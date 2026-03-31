@@ -1,0 +1,219 @@
+<view class="container">
+
+  <view class="card profile-card">
+      <view class="row">
+        <view class="row" style="gap: 16rpx;">
+          <!-- 头像：点击自动拉起微信头像选择器 -->
+          <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+            <view wx:if="{{me.avatarUrl}}" class="avatar-img-wrap">
+              <image class="avatar-img" src="{{me.avatarUrl}}" mode="aspectFill" />
+            </view>
+            <view wx:else class="avatar-placeholder">{{me ? (me.nickname[0] || '球') : (openid ? '…' : '?')}}</view>
+          </button>
+          <view>
+            <view class="nickname-row">
+              <!-- 昵称：点击自动获取微信昵称 -->
+              <button class="nickname-btn" open-type="chooseNickname" bind:chooseNickname="onChooseNickname">
+                <text class="nickname-text {{me && me.nickname !== '球友' ? '' : 'placeholder'}}">
+                  {{me && me.nickname !== '球友' ? me.nickname : '点击获取微信昵称'}}
+                </text>
+              </button>
+              <view wx:if="{{me && me.nickname === '球友'}}" class="set-profile-tip">请先设置</view>
+            </view>
+            <view style="margin-top: 8rpx;" wx:if="{{me}}">
+              <text class="rank-badge" style="color:{{me.rankColor}}; border-color:{{me.rankColor}};">{{me.rankName}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+    <view class="score-row" wx:if="{{me}}">
+      <view class="score-item">
+        <view class="score-num">{{me.score}}</view>
+        <view class="muted score-label">当前积分</view>
+      </view>
+      <view class="score-divider"></view>
+      <view class="score-item">
+        <view class="score-num">{{me.totalWin}}</view>
+        <view class="muted score-label">胜场</view>
+      </view>
+      <view class="score-divider"></view>
+      <view class="score-item">
+        <view class="score-num">{{me.totalLose}}</view>
+        <view class="muted score-label">负场</view>
+      </view>
+      <view class="score-divider"></view>
+      <view class="score-item" bindtap="onLeaderboard">
+        <view class="score-num" style="color:#111827;">{{me.rank}}</view>
+        <view class="muted score-label">全服排名</view>
+      </view>
+    </view>
+
+    <!-- 约豆余额 -->
+    <view class="yuedou-row" wx:if="{{me}}">
+      <view class="yuedou-item">
+        <view class="yuedou-num">{{me.yuedou || 0}}</view>
+        <view class="muted yuedou-label">约豆余额</view>
+      </view>
+      <view class="yuedou-divider"></view>
+      <view class="yuedou-item">
+        <view class="yuedou-num" style="color:#fbbf24;">{{me.yuedouFrozen || 0}}</view>
+        <view class="muted yuedou-label">冻结中</view>
+      </view>
+      <view class="yuedou-divider"></view>
+      <view class="yuedou-item">
+        <view class="yuedou-num" style="color:#a78bfa;">{{me.yuedouSystem || 0}}</view>
+        <view class="muted yuedou-label">累计贡献</view>
+      </view>
+    </view>
+
+    <!-- 每日礼包领取入口：约豆用光时一直显示 -->
+    <view class="daily-bonus-row" wx:if="{{me && me.yuedou === 0}}" bindtap="onClaimDailyBonus">
+      <view class="daily-bonus-icon">🎁</view>
+      <view class="daily-bonus-text">
+        <view style="font-size:26rpx; font-weight:600; color:#111827;">约豆已用光</view>
+        <view style="font-size:22rpx; color:#6b7280; margin-top:4rpx;" wx:if="{{dailyClaimed}}">今日已领取，明早8点资金池刷新</view>
+        <view style="font-size:22rpx; color:#6b7280; margin-top:4rpx;" wx:else>点击领取 1000 约豆</view>
+      </view>
+      <view class="daily-bonus-arrow">▶</view>
+    </view>
+
+    <view class="login-error-box" wx:if="{{loginErrorMsg}}">
+      <text class="login-error-text">{{loginErrorMsg}}</text>
+      <button class="btn-copy-openid" size="mini" bindtap="onRetryLogin">重试登录</button>
+    </view>
+  </view>
+
+  <!-- 活跃积分卡片 -->
+  <view class="activity-card" wx:if="{{me}}">
+    <view class="activity-title">活跃积分</view>
+
+    <!-- 签到区 -->
+    <view class="signin-section">
+      <view class="signin-left">
+        <view class="signin-label">{{signedInToday ? '✓ 今日已签到' : '每日签到'}}</view>
+        <view class="signin-consecutive" wx:if="{{activityStatus}}">
+          连续 {{activityStatus.consecutiveDays}} 天
+          <text wx:if="{{activityStatus.nextSignInMilestone}}"> · 再签 {{activityStatus.daysToNextSignInMilestone}} 天领 +{{activityStatus.nextSignInMilestone.bonus}} 奖励</text>
+        </view>
+      </view>
+      <button
+        class="signin-btn {{signedInToday ? 'signed' : ''}}"
+        size="mini"
+        bindtap="onDailySignIn"
+        wx:if="{{!signedInToday}}"
+      >签到</button>
+      <view wx:else class="signin-btn signed" style="min-width:140rpx;text-align:center;font-size:26rpx;line-height:64rpx;">已签到</view>
+    </view>
+
+    <!-- 进度区 -->
+    <view class="progress-section">
+      <!-- 周活跃 -->
+      <view class="progress-item">
+        <view class="progress-header">
+          <view>
+            <text class="progress-label">本周活跃</text>
+            <text class="progress-numbers" style="margin-left:12rpx;">
+              <text class="current">{{activityStatus ? activityStatus.weeklyMatches : 0}}</text>
+              <text class="target"> / {{activityStatus ? activityStatus.weeklyTarget : 3}} 场</text>
+            </text>
+          </view>
+          <view style="display:flex;align-items:center;gap:8rpx;">
+            <text class="progress-numbers claimed" wx:if="{{activityStatus && activityStatus.weeklyClaimed}}">+{{activityStatus.weeklyReward}} 已领取</text>
+            <button class="claim-btn {{activityStatus && (activityStatus.weeklyMatches >= (activityStatus.weeklyTarget || 3)) && !activityStatus.weeklyClaimed ? '' : 'disabled'}}"
+              size="mini"
+              bindtap="onClaimWeekly"
+              wx:if="{{activityStatus && !activityStatus.weeklyClaimed}}"
+            >领取</button>
+          </view>
+        </view>
+        <view class="progress-bar-bg">
+          <view class="progress-bar-fill weekly" style="width: {{activityStatus ? (activityStatus.weeklyProgress * 100) : 0}}%"></view>
+        </view>
+      </view>
+
+      <view class="progress-divider"></view>
+
+      <!-- 月活跃 -->
+      <view class="progress-item">
+        <view class="progress-header">
+          <view>
+            <text class="progress-label">本月活跃</text>
+            <text class="progress-numbers" style="margin-left:12rpx;">
+              <text class="current">{{activityStatus ? activityStatus.monthlyMatches : 0}}</text>
+              <text class="target"> / {{activityStatus ? activityStatus.monthlyTarget : 10}} 场</text>
+            </text>
+          </view>
+          <view style="display:flex;align-items:center;gap:8rpx;">
+            <text class="progress-numbers claimed" wx:if="{{activityStatus && activityStatus.monthlyClaimed}}">+{{activityStatus.monthlyReward}} 已领取</text>
+            <button class="claim-btn {{activityStatus && (activityStatus.monthlyMatches >= (activityStatus.monthlyTarget || 10)) && !activityStatus.monthlyClaimed ? '' : 'disabled'}}"
+              size="mini"
+              bindtap="onClaimMonthly"
+              wx:if="{{activityStatus && !activityStatus.monthlyClaimed}}"
+            >领取</button>
+          </view>
+        </view>
+        <view class="progress-bar-bg">
+          <view class="progress-bar-fill monthly" style="width: {{activityStatus ? (activityStatus.monthlyProgress * 100) : 0}}%"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="row">
+      <view style="font-weight: 700;">我的球局</view>
+      <view></view>
+    </view>
+    <view class="row" style="margin-top: 14rpx;">
+      <button class="{{tab === 'hosted' ? 'btn-primary' : 'btn-ghost'}}" size="mini" bindtap="onSwitchTab" data-tab="hosted">
+        我发起的({{myHostedMatches.length}})
+      </button>
+      <button class="{{tab === 'joined' ? 'btn-primary' : 'btn-ghost'}}" size="mini" bindtap="onSwitchTab" data-tab="joined">
+        我加入的({{myJoinedMatches.length}})
+      </button>
+      <button class="btn-ghost" size="mini" bindtap="onGoMatches">去找局</button>
+    </view>
+
+    <!-- 我发起的 -->
+    <view wx:if="{{tab === 'hosted'}}">
+      <view wx:for="{{myHostedMatches}}" wx:key="_id" class="match-mini-row" bindtap="onOpenMyMatch" data-match-id="{{item._id}}">
+        <view style="min-width:0; flex:1;">
+          <view style="font-size:26rpx; font-weight:600;">{{item.venueName}}</view>
+          <view class="muted" style="font-size:22rpx; margin-top:4rpx;">{{item.startAtText}}</view>
+        </view>
+        <view class="badge {{item.status === 'recruiting' ? 'badge-green' : ''}}">{{item.status === 'recruiting' ? '招募中' : item.status === 'finished' ? '已结束' : '进行中'}}</view>
+        <!-- 招募中且已过期，或进行中超过6小时，显示关闭按钮 -->
+        <view wx:if="{{item._canClose}}" class="close-btn" catchtap="onCloseMatch" data-match="{{item}}">×</view>
+      </view>
+      <view wx:if="{{myHostedMatches.length === 0}}" class="muted" style="text-align:center; padding:20rpx 0;">暂无发起的球局</view>
+    </view>
+
+    <!-- 我加入的 -->
+    <view wx:if="{{tab === 'joined'}}">
+      <view wx:for="{{myJoinedMatches}}" wx:key="_id" class="match-mini-row" bindtap="onOpenMyMatch" data-match-id="{{item._id}}">
+        <view style="min-width:0; flex:1;">
+          <view style="font-size:26rpx; font-weight:600;">{{item.venueName}}</view>
+          <view class="muted" style="font-size:22rpx; margin-top:4rpx;">{{item.startAtText}}</view>
+        </view>
+        <view class="badge {{item.status === 'recruiting' ? 'badge-green' : ''}}">{{item.status === 'recruiting' ? '招募中' : item.status === 'finished' ? '已结束' : '进行中'}}</view>
+        <!-- 进行中超过6小时，显示关闭按钮（加入者也能关） -->
+        <view wx:if="{{item._canClose}}" class="close-btn" catchtap="onCloseMatch" data-match="{{item}}">×</view>
+      </view>
+      <view wx:if="{{myJoinedMatches.length === 0}}" class="muted" style="text-align:center; padding:20rpx 0;">暂无加入的球局</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view style="font-weight:700;">设置</view>
+    <view class="row" style="margin-top: 14rpx; flex-wrap:wrap; gap:10rpx;">
+      <button class="btn-ghost" size="mini" bindtap="onLocationSetting">定位权限</button>
+      <button class="btn-ghost" size="mini" bindtap="onNotifications">通知中心</button>
+      <button class="btn-ghost" size="mini" bindtap="onContactAdmin">商家入驻</button>
+      <button class="btn-ghost" size="mini" bindtap="onAdmin">后台管理</button>
+      <button class="btn-ghost" size="mini" bindtap="onAbout">关于</button>
+      <button class="btn-ghost" size="mini" bindtap="onAgreement">用户协议</button>
+    </view>
+  </view>
+
+</view>

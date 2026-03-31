@@ -1,0 +1,35 @@
+<view class="container">
+  <!-- 汇总卡片 -->
+  <view class="summary-card">
+    <view class="summary-title">约豆收支</view>
+    <view class="summary-desc">记录你在约球8的每一笔约豆得失</view>
+  </view>
+
+  <!-- 明细列表 -->
+  <view class="records-section" wx:if="{{!loading}}">
+    <view wx:if="{{empty}}" class="empty-tip">
+      <text>暂无约豆记录</text>
+      <text class="empty-sub">去约个球局试试，说不定能有收获~</text>
+    </view>
+
+    <view wx:else class="record-list">
+      <view
+        wx:for="{{records}}"
+        wx:key="_id"
+        class="record-item"
+      >
+        <view class="record-left">
+          <text class="record-type">{{item.typeLabel}}</text>
+          <text class="record-date">{{item.dateText}}</text>
+        </view>
+        <view class="record-right">
+          <text class="record-amount {{item.amountClass}}">{{item.amountText}}</text>
+          <text class="record-unit">约豆</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="loading-tip">加载中...</view>
+</view>

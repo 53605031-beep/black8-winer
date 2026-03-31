@@ -1,0 +1,167 @@
+<view class="page">
+  <!-- 顶栏 -->
+  <view class="nav-bar">
+    <view class="nav-back">
+      <text class="icon-back">‹</text>
+    </view>
+    <view class="nav-title">发起对战</view>
+    <view class="nav-menu">
+      <text>⋮</text>
+    </view>
+  </view>
+
+  <view class="content">
+    <!-- 玩法类型 -->
+    <view class="section">
+      <view class="section-label">比赛类型</view>
+      <view class="tab-group">
+        <view
+          wx:for="{{playTypeOptions}}"
+          wx:key="value"
+          class="tab-item {{playTypeIndex === index ? 'active' : ''}}"
+          bindtap="onPlayTypeChange"
+          data-index="{{index}}"
+        >
+          <text wx:if="{{playTypeIndex === index}}" class="tab-check">✓</text>
+          {{item.label}}
+        </view>
+      </view>
+    </view>
+
+    <!-- 比赛局数 -->
+    <view class="section">
+      <view class="section-label">比赛局数</view>
+      <view class="tab-group rounds-group">
+        <view
+          wx:for="{{roundsOptions}}"
+          wx:key="value"
+          class="tab-item rounds-item {{roundsIndex === index ? 'active' : ''}}"
+          bindtap="onRoundsChange"
+          data-index="{{index}}"
+        >
+          <text wx:if="{{roundsIndex === index}}" class="tab-check">✓</text>
+          {{item.label}}
+        </view>
+      </view>
+    </view>
+
+    <!-- 比赛时间（单行入口） -->
+    <view class="section">
+      <view class="section-label">比赛时间</view>
+      <view class="input-row" bindtap="onOpenTimeSheet">
+        <text class="input-icon">⏰</text>
+        <text class="input-value">{{displayTime}}</text>
+        <text class="input-arrow">›</text>
+      </view>
+    </view>
+
+    <!-- 比赛地点 -->
+    <view class="section">
+      <view class="section-label">比赛地点</view>
+      <picker mode="selector" range="{{venueOptions}}" range-key="name" value="{{venueIndex}}" bindchange="onVenueChange">
+        <view class="input-row">
+          <text class="input-icon">📍</text>
+          <text class="input-value">{{venueOptions[venueIndex].name}}</text>
+          <text class="input-arrow">›</text>
+        </view>
+      </picker>
+      <view class="address-hint">{{venueOptions[venueIndex].address}}</view>
+    </view>
+
+    <!-- 约豆规则 -->
+    <view class="section rules-section">
+      <view class="section-label">约豆规则</view>
+      <view class="rules-list">
+        <view class="rule-item">
+          <text class="rule-num">1</text>
+          <text>发起人冻结 {{frozenBeans}} 约豆</text>
+        </view>
+        <view class="rule-item">
+          <text class="rule-num">2</text>
+          <text>胜方获得 {{winBeans}} 约豆</text>
+        </view>
+        <view class="rule-item">
+          <text class="rule-num">3</text>
+          <text>负方扣除 {{loseBeans}} 约豆</text>
+        </view>
+      </view>
+      <view class="rules-agree" bindtap="toggleAgree">
+        <view class="checkbox {{agreed ? 'checked' : ''}}">
+          <text wx:if="{{agreed}}" class="check-icon">✓</text>
+        </view>
+        <text class="agree-text">我已阅读并同意<text class="link">《约球公约》</text></text>
+      </view>
+    </view>
+
+    <!-- 预计时长 -->
+    <view class="section">
+      <view class="section-label">预计时长</view>
+      <picker mode="selector" range="{{durationOptions}}" value="{{durationIndex}}" bindchange="onDurationChange">
+        <view class="input-row">
+          <text class="input-icon">⏳</text>
+          <text class="input-value">{{durationOptions[durationIndex]}}分钟</text>
+          <text class="input-arrow">›</text>
+        </view>
+      </picker>
+    </view>
+
+    <!-- 提示条 -->
+    <view class="promo-banner">
+      <text class="promo-icon">💡</text>
+      <text class="promo-text">约豆仅限平台内使用，请遵守平台规则，友好约球</text>
+    </view>
+  </view>
+
+  <!-- 底部主按钮 -->
+  <view class="bottom-bar">
+    <button class="btn-main" bindtap="onPublish" loading="{{publishing}}">
+      发布约局
+    </button>
+  </view>
+
+  <!-- ==================== 底部时间选择弹层 ==================== -->
+  <view class="sheet-mask {{showTimeSheet ? 'show' : ''}}" bindtap="onCloseTimeSheet"></view>
+  <view class="time-sheet {{showTimeSheet ? 'show' : ''}}">
+    <!-- 标题栏 -->
+    <view class="sheet-header">
+      <text class="sheet-title">选择比赛开始时间</text>
+      <view class="sheet-close" bindtap="onCloseTimeSheet">
+        <text>×</text>
+      </view>
+    </view>
+
+    <!-- 双列选择区 -->
+    <view class="sheet-body">
+      <!-- 左列：日期 -->
+      <scroll-view class="col-scroll col-date" scroll-y>
+        <view
+          wx:for="{{dateOptions}}"
+          wx:key="date"
+          class="col-item date-item {{curDateIdx === index ? 'active' : ''}}"
+          bindtap="onDateColTap"
+          data-idx="{{index}}"
+        >
+          {{item.label}}
+        </view>
+      </scroll-view>
+
+      <!-- 右列：时间（30分钟档） -->
+      <scroll-view class="col-scroll col-time" scroll-y>
+        <view
+          wx:for="{{timeSlots}}"
+          wx:key="this"
+          class="col-item time-item {{curTimeIdx === index ? 'active' : ''}}"
+          bindtap="onTimeColTap"
+          data-idx="{{index}}"
+        >
+          {{item}}
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 确认按钮 -->
+    <view class="sheet-footer">
+      <view class="sheet-confirm" bindtap="onTimeSheetConfirm">确定</view>
+    </view>
+  </view>
+</view>

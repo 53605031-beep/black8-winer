@@ -1,0 +1,431 @@
+/* ========================================
+   pages/publish/index.wxss - 发布约局（纯色风格）
+   ======================================== */
+
+page {
+  background-color: #f5f5f5;
+  color: #333333;
+  font-size: 28rpx;
+}
+
+/* ========== 顶栏 ========== */
+.nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 24rpx;
+  background: #ffffff;
+}
+
+.nav-back {
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+  border-radius: 50%;
+}
+
+.icon-back {
+  font-size: 44rpx;
+  color: #333333;
+  font-weight: 300;
+}
+
+.nav-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #333333;
+}
+
+.nav-menu {
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36rpx;
+  color: #666666;
+  background: #f5f5f5;
+  border-radius: 50%;
+}
+
+/* ========== 内容区 ========== */
+.content {
+  padding: 24rpx;
+  padding-bottom: 160rpx;
+}
+
+/* ========== 区块通用 ========== */
+.section {
+  margin-bottom: 32rpx;
+}
+
+.section-label {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #666666;
+  margin-bottom: 18rpx;
+  padding-left: 6rpx;
+}
+
+/* ========== 横向标签组 ========== */
+.tab-group {
+  display: flex;
+  gap: 16rpx;
+}
+
+.tab-item {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  padding: 24rpx 16rpx;
+  border-radius: 16rpx;
+  background: #ffffff;
+  border: 1rpx solid #e0e0e0;
+  color: #666666;
+  font-size: 30rpx;
+  font-weight: 500;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.tab-item.active {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.tab-check {
+  font-size: 22rpx;
+  color: #16a34a;
+}
+
+/* 比赛局数按钮 */
+.rounds-group {
+  gap: 16rpx;
+}
+
+.rounds-item {
+  padding: 26rpx 16rpx;
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+/* ========== 输入行 ========== */
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 26rpx 28rpx;
+  background: #ffffff;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 16rpx;
+}
+
+.input-icon {
+  font-size: 34rpx;
+  flex-shrink: 0;
+}
+
+.input-value {
+  flex: 1;
+  font-size: 28rpx;
+  color: #333333;
+}
+
+.input-placeholder {
+  color: #cccccc;
+}
+
+.input-arrow {
+  font-size: 34rpx;
+  color: #999999;
+}
+
+.address-hint {
+  margin-top: 12rpx;
+  margin-left: 6rpx;
+  font-size: 22rpx;
+  color: #999999;
+}
+
+/* ========== 约豆规则区块 ========== */
+.rules-section {
+  background: #ffffff;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 16rpx;
+  padding: 28rpx;
+}
+
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+  margin-bottom: 24rpx;
+}
+
+.rule-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  font-size: 26rpx;
+  color: #333333;
+}
+
+.rule-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38rpx;
+  height: 38rpx;
+  border-radius: 50%;
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  color: #166534;
+  font-size: 22rpx;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.rules-agree {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.checkbox {
+  width: 42rpx;
+  height: 42rpx;
+  border-radius: 50%;
+  border: 2rpx solid #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  background: #ffffff;
+}
+
+.checkbox.checked {
+  background: #1a73e8;
+  border-color: #1a73e8;
+}
+
+.check-icon {
+  color: #ffffff;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.agree-text {
+  font-size: 24rpx;
+  color: #666666;
+}
+
+.link {
+  color: #1a73e8;
+  font-weight: 600;
+}
+
+/* ========== 提示条 ========== */
+.promo-banner {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  background: #dbeafe;
+  border: 1rpx solid #93c5fd;
+  border-radius: 12rpx;
+  margin-bottom: 32rpx;
+}
+
+.promo-icon {
+  font-size: 34rpx;
+  flex-shrink: 0;
+}
+
+.promo-text {
+  flex: 1;
+  font-size: 24rpx;
+  color: #1e40af;
+}
+
+.promo-arrow {
+  display: none;
+}
+
+/* ========== 底部主按钮 ========== */
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 20rpx 32rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.btn-main {
+  width: 100%;
+  height: 96rpx;
+  background: #1a73e8;
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 700;
+  border-radius: 999rpx;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 2rpx;
+}
+
+.btn-main::after {
+  border: none;
+}
+
+/* ================================================================
+   底部时间选择弹层
+   ================================================================ */
+
+/* 遮罩层 */
+.sheet-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0);
+  z-index: 900;
+  pointer-events: none;
+  transition: background 0.3s;
+}
+
+.sheet-mask.show {
+  background: rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+/* 弹层面板 */
+.time-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 950;
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 20rpx);
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.36, 0.66, 0.56, 1);
+}
+
+.time-sheet.show {
+  transform: translateY(0);
+}
+
+/* 标题栏 */
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32rpx 32rpx 24rpx;
+  border-bottom: 1rpx solid #eeeeee;
+}
+
+.sheet-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #333333;
+}
+
+.sheet-close {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+  border-radius: 50%;
+}
+
+.sheet-close text {
+  font-size: 36rpx;
+  color: #666666;
+  line-height: 1;
+}
+
+/* 双列区 */
+.sheet-body {
+  display: flex;
+  height: 480rpx;
+  overflow: hidden;
+}
+
+/* 左列：日期 */
+.col-scroll {
+  height: 100%;
+}
+
+.col-date {
+  width: 340rpx;
+  border-right: 1rpx solid #eeeeee;
+}
+
+/* 右列：时间 */
+.col-time {
+  flex: 1;
+}
+
+/* 列表项 */
+.col-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 88rpx;
+  font-size: 28rpx;
+  color: #333333;
+  border-bottom: 1rpx solid #f5f5f5;
+  transition: all 0.15s;
+}
+
+.col-item.active {
+  color: #1a73e8;
+  font-weight: 700;
+  background: #e8f0fe;
+}
+
+.date-item {
+  padding: 0 24rpx;
+  justify-content: flex-start;
+}
+
+.time-item {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+/* 底部确认按钮 */
+.sheet-footer {
+  padding: 20rpx 32rpx 0;
+}
+
+.sheet-confirm {
+  height: 88rpx;
+  background: #1a73e8;
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 700;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 2rpx;
+}

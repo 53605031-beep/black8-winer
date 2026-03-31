@@ -1,0 +1,378 @@
+/* ========================================
+   pages/mine/index.wxss - 个人中心（纯色风格）
+   ======================================== */
+
+/* 个人资料卡 */
+.profile-card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 32rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.profile-card .muted {
+  color: #999999 !important;
+}
+
+/* 头像按钮 - 去除默认样式 */
+.avatar-btn {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+}
+
+.avatar-btn::after {
+  border: none !important;
+}
+
+.avatar-placeholder {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  font-size: 40rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatar-img-wrap {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+}
+
+.nickname-row {
+  display: flex;
+  align-items: center;
+  margin-left: 12rpx;
+}
+
+.set-profile-tip {
+  font-size: 22rpx;
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+/* 昵称按钮 - 去除默认样式 */
+.nickname-btn {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+  text-align: left !important;
+}
+
+.nickname-btn::after {
+  border: none !important;
+}
+
+.nickname-text {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #333333;
+}
+
+.nickname-text.placeholder {
+  color: #cccccc;
+}
+
+.rank-badge {
+  border: 2rpx solid #e0e0e0;
+  border-radius: 999rpx;
+  padding: 4rpx 16rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  background: #f5f5f5;
+  color: #666666;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  margin-top: 28rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.score-item {
+  flex: 1;
+  text-align: center;
+}
+
+.score-num {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #1a73e8;
+}
+
+.score-label {
+  font-size: 22rpx;
+  margin-top: 6rpx;
+  color: #999999;
+}
+
+.score-divider {
+  width: 1rpx;
+  height: 50rpx;
+  background: #eeeeee;
+}
+
+.match-mini-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.match-mini-row:last-child {
+  border-bottom: none;
+}
+
+/* 状态胶囊 */
+.badge-green {
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  color: #166534;
+  border-radius: 999rpx;
+  padding: 4rpx 12rpx;
+  font-size: 22rpx;
+}
+
+.openid-row {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.openid-label {
+  font-size: 22rpx;
+  color: #999999;
+  margin-bottom: 8rpx;
+}
+
+.openid-text {
+  font-size: 22rpx;
+  color: #f59e0b;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.btn-copy-openid {
+  align-self: flex-start;
+  margin-top: 8rpx;
+  background: #f5f5f5 !important;
+  color: #666666 !important;
+  border: 1rpx solid #e0e0e0 !important;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  padding: 10rpx 20rpx;
+}
+
+.login-error-box {
+  margin-top: 20rpx;
+  padding: 20rpx;
+  background: #fffbeb;
+  border-radius: 12rpx;
+  border: 1rpx solid #fde68a;
+}
+
+.login-error-text {
+  display: block;
+  font-size: 24rpx;
+  color: #92400e;
+  line-height: 1.6;
+  margin-bottom: 12rpx;
+  word-break: break-all;
+}
+
+/* 活跃积分卡片 */
+.activity-card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  margin-top: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.activity-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #333333;
+  margin-bottom: 24rpx;
+}
+
+/* 签到区 */
+.signin-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx;
+  background: #fffbeb;
+  border: 1rpx solid #fde68a;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.signin-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.signin-consecutive {
+  font-size: 22rpx;
+  color: #999999;
+  margin-top: 6rpx;
+}
+
+.signin-btn {
+  background: #1a73e8 !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-size: 26rpx;
+  font-weight: 700;
+  padding: 0 32rpx !important;
+  border-radius: 999rpx !important;
+  min-width: 140rpx;
+  height: 64rpx !important;
+  line-height: 64rpx !important;
+}
+
+.signin-btn.signed {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+}
+
+.signin-milestone {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #999999;
+}
+
+/* 进度区 */
+.progress-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.progress-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10rpx;
+}
+
+.progress-label {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #333333;
+}
+
+.progress-numbers {
+  font-size: 24rpx;
+  color: #666666;
+}
+
+.progress-numbers .current {
+  font-weight: 700;
+  color: #1a73e8;
+}
+
+.progress-numbers .target {
+  font-weight: 700;
+  color: #1a73e8;
+}
+
+.progress-numbers .claimed {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.progress-bar-bg {
+  width: 100%;
+  height: 16rpx;
+  background: #eeeeee;
+  border-radius: 999rpx;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  transition: width 0.3s ease;
+}
+
+.progress-bar-fill.weekly {
+  background: #1a73e8;
+}
+
+.progress-bar-fill.monthly {
+  background: #667eea;
+}
+
+.claim-btn {
+  background: #16a34a !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-size: 22rpx;
+  font-weight: 700;
+  padding: 0 20rpx !important;
+  border-radius: 999rpx !important;
+  min-width: 100rpx;
+  height: 52rpx !important;
+  line-height: 52rpx !important;
+}
+
+.claim-btn.claimed {
+  background: #f5f5f5 !important;
+  color: #999999 !important;
+}
+
+.claim-btn.disabled {
+  background: #f5f5f5 !important;
+  color: #cccccc !important;
+}
+
+.progress-divider {
+  height: 1rpx;
+  background: #eeeeee;
+  margin: 8rpx 0;
+}
+
+/* 球局关闭按钮 */
+.close-btn {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  background: #fee2e2;
+  border: 1rpx solid #fca5a5;
+  color: #991b1b;
+  font-size: 28rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 12rpx;
+  line-height: 1;
+}

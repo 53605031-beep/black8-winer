@@ -1,0 +1,9 @@
+{
+  "name": "matchService",
+  "version": "1.0.0",
+  "description": "约球8 · 球局核心操作云函数（发布/加入/退出/确认/结果选择/位置校验）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

@@ -1,0 +1,135 @@
+<view class="container">
+
+  <!-- ══════════════ 待审核状态 ══════════════ -->
+  <view wx:if="{{status === 'pending'}}" class="status-panel">
+    <view class="status-icon">
+      <svg width="72" height="72" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" fill="#fff7ed" stroke="#fb923c" stroke-width="1.5"/>
+        <path d="M12 7v6M12 16.5h.01" stroke="#fb923c" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </view>
+    <view class="status-title">申请已提交</view>
+    <view class="status-sub">你的入驻申请正在审核中，管理员会尽快处理，请耐心等待。</view>
+    <view class="status-detail" wx:if="{{application}}">
+      <view class="detail-row">
+        <text class="muted">球房名称</text>
+        <text>{{application.venueName}}</text>
+      </view>
+      <view class="detail-row">
+        <text class="muted">提交时间</text>
+        <text>{{application.createdAt}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ══════════════ 已通过状态 ══════════════ -->
+  <view wx:if="{{status === 'approved'}}" class="status-panel">
+    <view class="status-icon">
+      <svg width="72" height="72" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+        <path d="M8 12l3 3 5-5" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </view>
+    <view class="status-title" style="color:#16a34a;">入驻成功！</view>
+    <view class="status-sub">你的球房「{{application.venueName}}」已上线，可在「附近」页面看到。</view>
+    <view style="margin-top: 28rpx;">
+      <button class="btn-primary" bindtap="onGoNearby">去查看</button>
+      <button class="btn-primary" style="margin-top: 20rpx; background:#1d4ed8;" bindtap="onEnterMerchant">进入管理</button>
+    </view>
+  </view>
+
+  <!-- ══════════════ 被拒绝状态 ══════════════ -->
+  <view wx:if="{{status === 'rejected'}}" class="status-panel">
+    <view class="status-icon">
+      <svg width="72" height="72" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5"/>
+        <path d="M15 9l-6 6M9 9l6 6" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </view>
+    <view class="status-title" style="color:#dc2626;">申请未通过</view>
+    <view class="status-sub">原因：{{rejectReason || "不符合入驻条件"}}</view>
+    <view style="margin-top: 28rpx;">
+      <button class="btn-primary" bindtap="onReapply">重新申请</button>
+    </view>
+  </view>
+
+  <!-- ══════════════ 空状态：填写申请表单 ══════════════ -->
+  <block wx:if="{{status === 'empty'}}">
+
+    <view class="section-title">基本信息</view>
+    <view class="card">
+      <view class="field-row">
+        <view class="field-label">球房名称</view>
+        <input class="field-input" placeholder="从地图选择或手动填写" value="{{name}}" bindinput="onNameInput" />
+      </view>
+      <view class="field-row">
+        <view class="field-label">联系电话</view>
+        <input class="field-input" type="number" placeholder="手机号" value="{{phone}}" bindinput="onPhoneInput" />
+      </view>
+      <view class="field-row">
+        <view class="field-label">营业时间</view>
+        <input class="field-input" placeholder="例如：10:00-23:00" value="{{openHours}}" bindinput="onHoursInput" />
+      </view>
+    </view>
+
+    <view class="section-title">地址信息</view>
+    <view class="card">
+      <view class="field-row" style="align-items: flex-start;">
+        <view class="field-label">详细地址</view>
+        <textarea class="field-textarea" placeholder="从地图选择后自动填入" value="{{address}}" bindinput="onAddressInput" />
+      </view>
+
+      <!-- 地图选位置 -->
+      <view class="location-btn-wrap">
+        <button class="location-btn location-btn-real" bindtap="onChooseLocation">
+          <view class="location-btn-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#3b82f6"/>
+              <circle cx="12" cy="9" r="2.5" fill="#ffffff"/>
+            </svg>
+          </view>
+          <view>
+            <view class="location-btn-title">{{selectedPoiName ? "已选位置" : "搜索球房位置"}}</view>
+            <view class="location-btn-sub">{{selectedPoiName ? selectedPoiName : "点击选择地图位置"}}</view>
+          </view>
+          <view class="location-btn-arrow">›</view>
+        </button>
+      </view>
+
+      <view wx:if="{{latitude && longitude}}" class="location-info">
+        <text class="muted">已记录坐标：{{latitude}}, {{longitude}}</text>
+      </view>
+
+      <view class="tip-row">
+        <view class="tip-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="#6b7280" stroke-width="2"/>
+            <path d="M12 8v4M12 16h.01" stroke="#6b7280" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </view>
+        <view class="tip-text">从地图选择后，球房名称和地址会自动填入。提交后需管理员审核才会显示。</view>
+      </view>
+    </view>
+
+    <view class="section-title">球房特色（可选）</view>
+    <view class="card">
+      <view class="tags-wrap">
+        <view
+          wx:for="{{tagOptions}}"
+          wx:key="index"
+          class="tag-btn {{selectedTags.indexOf(index) >= 0 ? 'tag-btn-active' : ''}}"
+          bindtap="onTagToggle"
+          data-idx="{{index}}"
+        >{{item}}</view>
+      </view>
+    </view>
+
+    <view style="height: 40rpx;" />
+
+    <view class="card" style="padding: 36rpx 32rpx;">
+      <button class="btn-primary" bindtap="onSubmit" loading="{{loading}}">提交入驻申请</button>
+    </view>
+
+  </block>
+
+</view>

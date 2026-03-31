@@ -1,0 +1,413 @@
+/* ========================================
+   pages/match-detail/index.wxss - 球局详情（纯色风格）
+   ======================================== */
+
+/* 球局信息卡片 */
+.match-info-card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.match-info-card .muted {
+  color: #999999 !important;
+}
+
+/* 约豆卡片 */
+.yuedou-card {
+  background: #fffbeb;
+  border: 1rpx solid #fde68a;
+  border-radius: 16rpx;
+  padding: 20rpx;
+}
+
+.yuedou-card .muted {
+  color: #999999 !important;
+}
+
+.section-label {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #333333;
+  margin-bottom: 16rpx;
+}
+
+.participant-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #f5f5f5;
+}
+
+.participant-row:last-child {
+  border-bottom: none;
+}
+
+.avatar-placeholder {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 18rpx;
+  flex-shrink: 0;
+}
+
+.avatar-img-wrap {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  margin-right: 18rpx;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+}
+
+.nickname {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #333333;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 0;
+}
+
+.picker-btn {
+  text-align: center;
+  padding: 12rpx 0;
+  font-size: 26rpx;
+  color: #666666;
+}
+
+/* 约豆 badge */
+.badge-yuedou {
+  background: #fef3c7;
+  border: 1rpx solid #fcd34d;
+  color: #92400e;
+  border-radius: 999rpx;
+  padding: 4rpx 12rpx;
+  font-size: 22rpx;
+}
+
+.badge-win {
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  color: #166534;
+  border-radius: 999rpx;
+  padding: 4rpx 12rpx;
+  font-size: 22rpx;
+}
+
+.badge-lose {
+  background: #fee2e2;
+  border: 1rpx solid #fca5a5;
+  color: #991b1b;
+  border-radius: 999rpx;
+  padding: 4rpx 12rpx;
+  font-size: 22rpx;
+}
+
+/* 阶段3选择状态 */
+.choice-status {
+  flex-shrink: 0;
+}
+
+.choice-tag {
+  display: inline-block;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.choice-win {
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  color: #166534;
+}
+
+.choice-lose {
+  background: #fee2e2;
+  border: 1rpx solid #fca5a5;
+  color: #991b1b;
+}
+
+.choice-wait {
+  background: #f5f5f5;
+  border: 1rpx solid #e0e0e0;
+  color: #666666;
+}
+
+.choice-tag-inline {
+  display: inline-block;
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+/* 满员卡片高亮 */
+.card-highlight {
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  border-radius: 16rpx;
+  padding: 24rpx;
+}
+
+/* 进行中卡片 */
+.card-playing {
+  background: #fef3c7;
+  border: 1rpx solid #fcd34d;
+  border-radius: 16rpx;
+  padding: 24rpx;
+}
+
+/* 已结算卡片 */
+.card-settled {
+  background: #dbeafe;
+  border: 1rpx solid #93c5fd;
+  border-radius: 16rpx;
+  padding: 24rpx;
+}
+
+/* 提示框 */
+.hint-box {
+  background: #f5f5f5;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+  margin-bottom: 20rpx;
+  font-size: 24rpx;
+  color: #666666;
+  text-align: center;
+}
+
+/* 选择按钮行 */
+.choice-row {
+  display: flex;
+  gap: 16rpx;
+  justify-content: center;
+}
+
+.choice-btn {
+  flex: 1;
+  max-width: 220rpx;
+  background: #f5f5f5;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 16rpx;
+  padding: 28rpx 0 20rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.choice-win-btn {
+  border-color: #86efac;
+  background: #dcfce7;
+}
+
+.choice-lose-btn {
+  border-color: #fca5a5;
+  background: #fee2e2;
+}
+
+.choice-icon {
+  font-size: 52rpx;
+  line-height: 1;
+}
+
+.choice-label {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #333333;
+}
+
+/* 结算结果框 */
+.settle-info {
+  text-align: center;
+  padding: 24rpx;
+}
+
+.result-box {
+  background: #f5f5f5;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  font-size: 26rpx;
+  color: #333333;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* 位置校验 */
+.location-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12rpx 0;
+  margin-bottom: 10rpx;
+}
+
+.location-check-label {
+  font-size: 24rpx;
+  color: #666666;
+}
+
+.location-check-status {
+  font-size: 24rpx;
+  font-weight: 700;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+}
+
+.location-check-status.ok {
+  background: #dcfce7;
+  border: 1rpx solid #86efac;
+  color: #166534;
+}
+
+.location-check-status.wait {
+  background: #fef3c7;
+  border: 1rpx solid #fcd34d;
+  color: #92400e;
+}
+
+/* 隐藏授权按钮 */
+.hidden-auth-btn {
+  position: fixed;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 授权提示框 */
+.auth-hint-box {
+  background: #fffbeb;
+  border: 1rpx solid #fde68a;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  margin-top: 20rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.auth-hint-text {
+  font-size: 26rpx;
+  color: #333333;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.auth-btn {
+  background: #1a73e8;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 700;
+  border-radius: 999rpx;
+  padding: 18rpx 56rpx;
+  line-height: 1.4;
+  border: none;
+}
+
+.auth-btn::after {
+  border: none;
+}
+
+/* 底部按钮栏 */
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 20rpx 32rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  display: flex;
+  gap: 16rpx;
+  box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.bottom-btn {
+  flex: 1;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bottom-btn-primary {
+  background: #1a73e8;
+  color: #ffffff;
+}
+
+.bottom-btn-secondary {
+  background: #f5f5f5;
+  border: 1rpx solid #e0e0e0;
+  color: #333333;
+}
+
+.bottom-btn-danger {
+  background: #fee2e2;
+  border: 1rpx solid #fca5a5;
+  color: #991b1b;
+}
+
+/* 通用卡片样式覆盖 */
+.card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+  color: #333333;
+}
+
+.card + .card {
+  margin-top: 20rpx;
+}
+
+.btn-primary {
+  background: #1a73e8;
+  color: #ffffff;
+  border: none;
+  border-radius: 12rpx;
+  padding: 18rpx 28rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.btn-primary::after {
+  border: none;
+}
+
+.btn-ghost {
+  background: #ffffff;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  color: #333333;
+  padding: 18rpx 22rpx;
+  font-size: 28rpx;
+}
+
+.btn-ghost::after {
+  border: none;
+}
