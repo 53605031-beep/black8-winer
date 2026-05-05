@@ -100,6 +100,32 @@ async function recordVenueAccess(userId, venueId, matchId) {
   }
 }
 
+// 辅助函数：冻结约豆。这里必须用条件更新，避免并发请求把余额扣成负数。
+async function freezeYuedou(openid) {
+  const res = await db.collection("yueqiu8_users")
+    .where({ openid, yuedou: _.gte(YUEDOU_FROZEN) })
+    .update({
+      data: {
+        yuedou: _.inc(-YUEDOU_FROZEN),
+        yuedouFrozen: _.inc(YUEDOU_FROZEN)
+      }
+    });
+
+  if (!res.stats || res.stats.updated !== 1) {
+    throw new Error("约豆不足500，无法操作");
+  }
+}
+
+// 辅助函数：核心写入失败时回滚冻结的约豆，避免用户资金被卡住。
+async function unfreezeYuedou(openid) {
+  await db.collection("yueqiu8_users").where({ openid }).update({
+    data: {
+      yuedou: _.inc(YUEDOU_FROZEN),
+      yuedouFrozen: _.inc(-YUEDOU_FROZEN)
+    }
+  });
+}
+
 // 辅助函数：记录比赛参与（活跃统计）
 async function recordMatchParticipation(openid, matchId, isHost = false) {
   const today = _todayStr();
@@ -181,44 +207,43 @@ async function doPublish(openid, matchData) {
 
   if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法发起约局");
 
-  // 1. 创建球局
-  const matchRes = await db.collection("matches").add({
-    data: {
-      ...matchData,
-      hostOpenid: openid,
-      hostNickname: nickname,
-      participants: [{
-        openid,
-        nickname,
-        avatar,
-        score: user.score || 0,
-        yuedouFrozen: YUEDOU_FROZEN,
-        resultChoice: null,
-        locationVerified: false,
-        locationVerifiedAt: null
-      }],
-      headcountJoined: 1,
-      status: "recruiting",
-      createdAt: db.serverDate()
-    }
-  });
+  // 先冻结约豆，再创建球局，避免球局已创建但扣款失败造成脏数据。
+  await freezeYuedou(openid);
 
-  // 2. 记录球房访问
-  if (matchData.venueId) {
-    await recordVenueAccess(openid, matchData.venueId, matchRes._id);
-  }
-
-  // 3. 冻约豆，失败则删除球局（补偿）
+  let matchRes = null;
   try {
-    await db.collection("yueqiu8_users").where({ openid }).update({
+    matchRes = await db.collection("matches").add({
       data: {
-        yuedou: _.inc(-YUEDOU_FROZEN),
-        yuedouFrozen: _.inc(YUEDOU_FROZEN)
+        ...matchData,
+        hostOpenid: openid,
+        hostNickname: nickname,
+        participants: [{
+          openid,
+          nickname,
+          avatar,
+          score: user.score || 0,
+          yuedouFrozen: YUEDOU_FROZEN,
+          resultChoice: null,
+          locationVerified: false,
+          locationVerifiedAt: null
+        }],
+        headcountJoined: 1,
+        status: "recruiting",
+        createdAt: db.serverDate()
       }
     });
   } catch (e) {
-    await db.collection("matches").doc(matchRes._id).remove();
-    throw new Error("冻结约豆失败，约局未发起");
+    await unfreezeYuedou(openid);
+    throw new Error("创建球局失败，约豆已退回");
+  }
+
+  // 访问记录只是福利站辅助数据，失败不能破坏球局和约豆的一致性。
+  if (matchData.venueId) {
+    try {
+      await recordVenueAccess(openid, matchData.venueId, matchRes._id);
+    } catch (e) {
+      console.error("记录球房访问失败（不影响发布）", e);
+    }
   }
 
   return { code: "ok" };
@@ -257,35 +282,41 @@ async function doJoin(openid, matchId) {
     locationVerifiedAt: null
   };
 
-  // 1. 加入球局
-  await db.collection("matches").doc(matchId).update({
-    data: {
-      participants: _.push(addedParticipant),
-      headcountJoined: _.inc(1)
-    }
-  });
+  // 先冻结约豆，再用条件更新加入球局，防止并发加入导致超员或余额扣成负数。
+  await freezeYuedou(openid);
 
-  // 2. 记录球房访问
-  if (match.venueId) {
-    await recordVenueAccess(openid, match.venueId, matchId);
+  try {
+    const updateRes = await db.collection("matches")
+      .where({
+        _id: matchId,
+        status: "recruiting",
+        headcountJoined: _.lt(match.headcountTarget || 2)
+      })
+      .update({
+        data: {
+          participants: _.push(addedParticipant),
+          headcountJoined: _.inc(1)
+        }
+      });
+
+    if (!updateRes.stats || updateRes.stats.updated !== 1) {
+      await unfreezeYuedou(openid);
+      throw new Error("该球局已满员或已不在招募中，约豆已退回");
+    }
+  } catch (e) {
+    if (!/约豆已退回/.test(e.message || "")) {
+      await unfreezeYuedou(openid);
+    }
+    throw e;
   }
 
-  // 3. 冻约豆，失败则退出（补偿）
-  try {
-    await db.collection("yueqiu8_users").where({ openid }).update({
-      data: {
-        yuedou: _.inc(-YUEDOU_FROZEN),
-        yuedouFrozen: _.inc(YUEDOU_FROZEN)
-      }
-    });
-  } catch (e) {
-    await db.collection("matches").doc(matchId).update({
-      data: {
-        participants: _.pull({ openid }),
-        headcountJoined: _.inc(-1)
-      }
-    });
-    throw new Error("冻结约豆失败，未成功加入");
+  // 访问记录只是福利站辅助数据，失败不能影响加入和冻结状态。
+  if (match.venueId) {
+    try {
+      await recordVenueAccess(openid, match.venueId, matchId);
+    } catch (e) {
+      console.error("记录球房访问失败（不影响加入）", e);
+    }
   }
 
   return { code: "ok" };
