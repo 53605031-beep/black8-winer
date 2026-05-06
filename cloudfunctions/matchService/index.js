@@ -25,6 +25,8 @@ const YUEDOU_FROZEN  = 500;
 const YUEDOU_WINNER  = 420;   // 赢家获得
 const YUEDOU_LOSER   = -500;  // 输家损失
 const YUEDOU_SYSTEM  = 80;     // 系统抽成
+const YUEDOU_DAILY_BONUS = 1000;  // 每日礼包每次领取额度
+const YUEDOU_DAILY_POOL  = 50000; // 每日总资金池
 
 // 积分常量
 const SCORE_CREATE_MATCH  = 5;
@@ -168,8 +170,8 @@ function _monthStartStr() {
 
 // ── 发布球局 ───────────────────────────────────────────────
 async function doPublish(openid, matchData) {
-  const headcountTarget = matchData.headcountTarget || 2;
-  if (headcountTarget < 2) throw new Error("每局至少需要2人");
+  // 当前结算流程只支持双人局，服务端固定人数，避免客户端改包造成多人结算错乱。
+  const headcountTarget = 2;
   if (!matchData.startAt) throw new Error("请选择开局时间");
   if (!matchData.venueId) throw new Error("请选择球房");
 
@@ -185,6 +187,7 @@ async function doPublish(openid, matchData) {
   const matchRes = await db.collection("matches").add({
     data: {
       ...matchData,
+      headcountTarget,
       hostOpenid: openid,
       hostNickname: nickname,
       participants: [{
@@ -230,21 +233,6 @@ async function doJoin(openid, matchId) {
   if (!user) throw new Error("用户不存在，请先登录");
   const nickname = user.nickname || "匿名用户";
   const score    = user.score || 0;
-  const yuedou    = user.yuedou ?? YUEDOU_INITIAL;
-
-  if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法加入约局");
-
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
-  if (match.status !== "recruiting") throw new Error("该球局已不在招募中，无法加入");
-  if ((match.headcountJoined ?? 0) >= (match.headcountTarget || 2)) {
-    throw new Error("该球局已满员");
-  }
-
-  const participants = match.participants || [];
-  if (participants.some((p) => p.openid === openid)) {
-    return { code: "already_joined" };
-  }
 
   const addedParticipant = {
     openid,
@@ -257,38 +245,144 @@ async function doJoin(openid, matchId) {
     locationVerifiedAt: null
   };
 
-  // 1. 加入球局
-  await db.collection("matches").doc(matchId).update({
-    data: {
-      participants: _.push(addedParticipant),
-      headcountJoined: _.inc(1)
+  let joinedVenueId = null;
+  const result = await db.runTransaction(async (transaction) => {
+    const matchRecord = await transaction.collection("matches").doc(matchId).get();
+    const userRecord = await transaction.collection("yueqiu8_users").doc(user._id).get();
+
+    const match = matchRecord.data;
+    const freshUser = userRecord.data;
+    if (!match) throw new Error("球局不存在");
+    if (!freshUser) throw new Error("用户不存在，请先登录");
+    if (match.status !== "recruiting") throw new Error("该球局已不在招募中，无法加入");
+
+    const participants = match.participants || [];
+    if (participants.some((p) => p.openid === openid)) {
+      return { code: "already_joined" };
     }
-  });
 
-  // 2. 记录球房访问
-  if (match.venueId) {
-    await recordVenueAccess(openid, match.venueId, matchId);
-  }
+    if ((freshUser.yuedou ?? YUEDOU_INITIAL) < YUEDOU_FROZEN) {
+      throw new Error("约豆不足500，无法加入约局");
+    }
 
-  // 3. 冻约豆，失败则退出（补偿）
-  try {
-    await db.collection("yueqiu8_users").where({ openid }).update({
+    if ((match.headcountJoined ?? participants.length) >= (match.headcountTarget || 2)) {
+      throw new Error("该球局已满员");
+    }
+
+    joinedVenueId = match.venueId || null;
+
+    // 加入名额和冻结约豆必须一起成功，避免并发抢最后名额时超员或扣款不一致。
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        participants: _.push(addedParticipant),
+        headcountJoined: _.inc(1)
+      }
+    });
+    await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN)
       }
     });
-  } catch (e) {
-    await db.collection("matches").doc(matchId).update({
-      data: {
-        participants: _.pull({ openid }),
-        headcountJoined: _.inc(-1)
-      }
-    });
-    throw new Error("冻结约豆失败，未成功加入");
+
+    return { code: "ok" };
+  });
+
+  // 记录球房访问不是资金/名额主链路，失败不回滚加入结果。
+  if (result.code === "ok" && joinedVenueId) {
+    try {
+      await recordVenueAccess(openid, joinedVenueId, matchId);
+    } catch (e) {
+      console.error("记录球房访问失败（不影响加入）", e);
+    }
   }
 
-  return { code: "ok" };
+  return result;
+}
+
+// ── 每日礼包领取 ───────────────────────────────────────────
+async function doClaimDailyBonus(openid) {
+  const today = _todayStr();
+  const userBefore = await getUserByOpenid(openid);
+  if (!userBefore) throw new Error("用户不存在，请先登录");
+
+  const result = await db.runTransaction(async (transaction) => {
+    let pool;
+    try {
+      const poolRecord = await transaction.collection("daily_pools").doc(today).get();
+      pool = poolRecord.data;
+    } catch (e) {
+      pool = null;
+    }
+
+    if (!pool) {
+      pool = {
+        _id: today,
+        totalPool: YUEDOU_DAILY_POOL,
+        remaining: YUEDOU_DAILY_POOL - YUEDOU_DAILY_BONUS,
+        totalClaimed: YUEDOU_DAILY_BONUS,
+        claimants: [openid],
+        createdAt: db.serverDate()
+      };
+      const userRecord = await transaction.collection("yueqiu8_users").doc(userBefore._id).get();
+      const user = userRecord.data;
+      if (!user) throw new Error("用户不存在，请先登录");
+
+      await transaction.collection("yueqiu8_users").doc(userBefore._id).update({
+        data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
+      });
+      await transaction.collection("daily_pools").doc(today).set({ data: pool });
+
+      return { code: "ok", remaining: pool.remaining, totalClaimed: pool.totalClaimed };
+    }
+
+    const remaining = pool.remaining || 0;
+    const totalClaimed = pool.totalClaimed || 0;
+    const claimants = pool.claimants || [];
+    if (claimants.includes(openid)) {
+      return { code: "already_claimed", remaining, totalClaimed };
+    }
+
+    if (remaining < YUEDOU_DAILY_BONUS) {
+      return { code: "pool_empty", remaining: 0, totalClaimed };
+    }
+
+    const userRecord = await transaction.collection("yueqiu8_users").doc(userBefore._id).get();
+    const user = userRecord.data;
+    if (!user) throw new Error("用户不存在，请先登录");
+
+    await transaction.collection("yueqiu8_users").doc(userBefore._id).update({
+      data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
+    });
+    await transaction.collection("daily_pools").doc(today).update({
+      data: {
+        remaining: _.inc(-YUEDOU_DAILY_BONUS),
+        totalClaimed: _.inc(YUEDOU_DAILY_BONUS),
+        claimants: _.push(openid)
+      }
+    });
+
+    return {
+      code: "ok",
+      remaining: remaining - YUEDOU_DAILY_BONUS,
+      totalClaimed: totalClaimed + YUEDOU_DAILY_BONUS
+    };
+  });
+
+  if (result.code === "ok") {
+    try {
+      await addNotice({
+        type: "daily_bonus",
+        targetOpenid: openid,
+        content: `每日礼包到账 +${YUEDOU_DAILY_BONUS} 约豆，今日资金池剩余 ${result.remaining} 约豆`,
+        createdAt: db.serverDate()
+      });
+    } catch (e) {
+      console.error("每日礼包通知失败（不影响到账）", e);
+    }
+  }
+
+  return result;
 }
 
 // ── 退出球局 ───────────────────────────────────────────────
@@ -552,6 +646,8 @@ exports.main = async (event) => {
         return { ok: true, ...(await doPublish(OPENID, matchData || {})) };
       case "join":
         return { ok: true, ...(await doJoin(OPENID, matchId)) };
+      case "claimDailyBonus":
+        return { ok: true, ...(await doClaimDailyBonus(OPENID)) };
       case "leave":
         return { ok: true, ...(await doLeave(OPENID, matchId)) };
       case "confirm":
