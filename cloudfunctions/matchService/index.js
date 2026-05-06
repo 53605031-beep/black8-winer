@@ -247,10 +247,8 @@ async function doJoin(openid, matchId) {
 
   let joinedVenueId = null;
   const result = await db.runTransaction(async (transaction) => {
-    const [matchRecord, userRecord] = await Promise.all([
-      transaction.get(db.collection("matches").doc(matchId)),
-      transaction.get(db.collection("yueqiu8_users").doc(user._id))
-    ]);
+    const matchRecord = await transaction.collection("matches").doc(matchId).get();
+    const userRecord = await transaction.collection("yueqiu8_users").doc(user._id).get();
 
     const match = matchRecord.data;
     const freshUser = userRecord.data;
@@ -274,13 +272,13 @@ async function doJoin(openid, matchId) {
     joinedVenueId = match.venueId || null;
 
     // 加入名额和冻结约豆必须一起成功，避免并发抢最后名额时超员或扣款不一致。
-    await transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.collection("matches").doc(matchId).update({
       data: {
         participants: _.push(addedParticipant),
         headcountJoined: _.inc(1)
       }
     });
-    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN)
@@ -305,14 +303,13 @@ async function doJoin(openid, matchId) {
 // ── 每日礼包领取 ───────────────────────────────────────────
 async function doClaimDailyBonus(openid) {
   const today = _todayStr();
-  const poolRef = db.collection("daily_pools").doc(today);
   const userBefore = await getUserByOpenid(openid);
   if (!userBefore) throw new Error("用户不存在，请先登录");
 
   const result = await db.runTransaction(async (transaction) => {
     let pool;
     try {
-      const poolRecord = await transaction.get(poolRef);
+      const poolRecord = await transaction.collection("daily_pools").doc(today).get();
       pool = poolRecord.data;
     } catch (e) {
       pool = null;
@@ -327,14 +324,14 @@ async function doClaimDailyBonus(openid) {
         claimants: [openid],
         createdAt: db.serverDate()
       };
-      const userRecord = await transaction.get(db.collection("yueqiu8_users").doc(userBefore._id));
+      const userRecord = await transaction.collection("yueqiu8_users").doc(userBefore._id).get();
       const user = userRecord.data;
       if (!user) throw new Error("用户不存在，请先登录");
 
-      await transaction.update(db.collection("yueqiu8_users").doc(userBefore._id), {
+      await transaction.collection("yueqiu8_users").doc(userBefore._id).update({
         data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
       });
-      await transaction.set(poolRef, { data: pool });
+      await transaction.collection("daily_pools").doc(today).set({ data: pool });
 
       return { code: "ok", remaining: pool.remaining, totalClaimed: pool.totalClaimed };
     }
@@ -350,14 +347,14 @@ async function doClaimDailyBonus(openid) {
       return { code: "pool_empty", remaining: 0, totalClaimed };
     }
 
-    const userRecord = await transaction.get(db.collection("yueqiu8_users").doc(userBefore._id));
+    const userRecord = await transaction.collection("yueqiu8_users").doc(userBefore._id).get();
     const user = userRecord.data;
     if (!user) throw new Error("用户不存在，请先登录");
 
-    await transaction.update(db.collection("yueqiu8_users").doc(userBefore._id), {
+    await transaction.collection("yueqiu8_users").doc(userBefore._id).update({
       data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
     });
-    await transaction.update(poolRef, {
+    await transaction.collection("daily_pools").doc(today).update({
       data: {
         remaining: _.inc(-YUEDOU_DAILY_BONUS),
         totalClaimed: _.inc(YUEDOU_DAILY_BONUS),
