@@ -306,6 +306,8 @@ async function doJoin(openid, matchId) {
 async function doClaimDailyBonus(openid) {
   const today = _todayStr();
   const poolRef = db.collection("daily_pools").doc(today);
+  const userBefore = await getUserByOpenid(openid);
+  if (!userBefore) throw new Error("用户不存在，请先登录");
 
   const result = await db.runTransaction(async (transaction) => {
     let pool;
@@ -325,11 +327,11 @@ async function doClaimDailyBonus(openid) {
         claimants: [openid],
         createdAt: db.serverDate()
       };
-      const userQuery = await transaction.get(db.collection("yueqiu8_users").where({ openid }));
-      const user = userQuery.data && userQuery.data[0];
+      const userRecord = await transaction.get(db.collection("yueqiu8_users").doc(userBefore._id));
+      const user = userRecord.data;
       if (!user) throw new Error("用户不存在，请先登录");
 
-      await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+      await transaction.update(db.collection("yueqiu8_users").doc(userBefore._id), {
         data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
       });
       await transaction.set(poolRef, { data: pool });
@@ -348,11 +350,11 @@ async function doClaimDailyBonus(openid) {
       return { code: "pool_empty", remaining: 0, totalClaimed };
     }
 
-    const userQuery = await transaction.get(db.collection("yueqiu8_users").where({ openid }));
-    const user = userQuery.data && userQuery.data[0];
+    const userRecord = await transaction.get(db.collection("yueqiu8_users").doc(userBefore._id));
+    const user = userRecord.data;
     if (!user) throw new Error("用户不存在，请先登录");
 
-    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.update(db.collection("yueqiu8_users").doc(userBefore._id), {
       data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
     });
     await transaction.update(poolRef, {
