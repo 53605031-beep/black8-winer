@@ -43,10 +43,29 @@ Page({
         app.globalData.chosenLocation = null;
       }
     }
+    if (!this._checkAdmin()) return;
     await this._load();
   },
 
+  _checkAdmin() {
+    const openid = getApp().globalData.openid || wx.getStorageSync("openid");
+    const adminOpenids = getApp().globalData.adminOpenids || [];
+    if (adminOpenids.includes(openid)) return true;
+
+    wx.showModal({
+      title: "无权限",
+      content: "商家后台仅限管理员使用",
+      showCancel: false,
+      success: () => wx.navigateBack()
+    });
+    return false;
+  },
+
   async onPullDownRefresh() {
+    if (!this._checkAdmin()) {
+      wx.stopPullDownRefresh();
+      return;
+    }
     await this._load();
     wx.stopPullDownRefresh();
   },
