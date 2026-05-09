@@ -14,6 +14,11 @@
  *   publish          发布新球局（与 join 同级）
  */
 const cloud = require("wx-server-sdk");
+const {
+  getSupportedHeadcountTarget,
+  getUniqueParticipantOpenids,
+  hasSupportedParticipantSet
+} = require("./matchRules");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -168,8 +173,7 @@ function _monthStartStr() {
 
 // ── 发布球局 ───────────────────────────────────────────────
 async function doPublish(openid, matchData) {
-  const headcountTarget = matchData.headcountTarget || 2;
-  if (headcountTarget < 2) throw new Error("每局至少需要2人");
+  const headcountTarget = getSupportedHeadcountTarget(matchData.headcountTarget);
   if (!matchData.startAt) throw new Error("请选择开局时间");
   if (!matchData.venueId) throw new Error("请选择球房");
 
@@ -185,6 +189,7 @@ async function doPublish(openid, matchData) {
   const matchRes = await db.collection("matches").add({
     data: {
       ...matchData,
+      headcountTarget,
       hostOpenid: openid,
       hostNickname: nickname,
       participants: [{
@@ -237,7 +242,8 @@ async function doJoin(openid, matchId) {
   const match = await getMatch(matchId);
   if (!match) throw new Error("球局不存在");
   if (match.status !== "recruiting") throw new Error("该球局已不在招募中，无法加入");
-  if ((match.headcountJoined ?? 0) >= (match.headcountTarget || 2)) {
+  const headcountTarget = getSupportedHeadcountTarget(match.headcountTarget);
+  if ((match.headcountJoined ?? 0) >= headcountTarget) {
     throw new Error("该球局已满员");
   }
 
@@ -257,13 +263,24 @@ async function doJoin(openid, matchId) {
     locationVerifiedAt: null
   };
 
-  // 1. 加入球局
-  await db.collection("matches").doc(matchId).update({
+  // 1. 加入球局：条件更新避免多人同时点击时把2人局挤成3人局
+  const updateResult = await db.collection("matches").where({
+    _id: matchId,
+    status: "recruiting",
+    headcountJoined: _.lt(headcountTarget)
+  }).update({
     data: {
       participants: _.push(addedParticipant),
       headcountJoined: _.inc(1)
     }
   });
+  if (!updateResult.stats || updateResult.stats.updated === 0) {
+    const latest = await getMatch(matchId);
+    if ((latest?.participants || []).some((p) => p.openid === openid)) {
+      return { code: "already_joined" };
+    }
+    throw new Error("该球局已满员");
+  }
 
   // 2. 记录球房访问
   if (match.venueId) {
@@ -367,6 +384,10 @@ async function doConfirm(openid, matchId) {
   if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
   if (match.status !== "recruiting") throw new Error("当前状态不可确认");
 
+  if (!hasSupportedParticipantSet(match.hostOpenid, match.participants)) {
+    throw new Error("当前仅支持2人对战");
+  }
+
   const allVerified = (match.participants || []).every((p) => p.locationVerified);
   if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
 
@@ -374,7 +395,7 @@ async function doConfirm(openid, matchId) {
     data: { status: "playing", startedAt: db.serverDate() }
   });
 
-  const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
+  const allOpenids = getUniqueParticipantOpenids(match.hostOpenid, match.participants);
   for (const uid of allOpenids) {
     const isHost = uid === match.hostOpenid;
     await recordMatchParticipation(uid, matchId, isHost);
@@ -391,6 +412,9 @@ async function doSubmitResult(openid, matchId, choice) {
   const match = await getMatch(matchId);
   if (!match) throw new Error("球局不存在");
   if (match.status !== "playing") throw new Error("当前状态不能选择结果");
+  if (!hasSupportedParticipantSet(match.hostOpenid, match.participants)) {
+    throw new Error("当前仅支持2人对战");
+  }
 
   const pIdx = (match.participants || []).findIndex((p) => p.openid === openid);
   if (pIdx < 0) throw new Error("你不在此球局中");
@@ -406,9 +430,11 @@ async function doSubmitResult(openid, matchId, choice) {
 
   const bothSelected = updated.every((p) => p.resultChoice != null);
   if (bothSelected) {
-    const choices = updated.map((p) => p.resultChoice);
-    const hostChoice  = choices[0];
-    const joinChoice = choices[1];
+    const choices = {};
+    updated.forEach((p) => { choices[p.openid] = p.resultChoice; });
+    const joiner = updated.find((p) => p.openid !== match.hostOpenid);
+    const hostChoice = choices[match.hostOpenid];
+    const joinChoice = choices[joiner.openid];
     // 赢+输 才结算，其他情况（一样或冲突）都重置
     const isConsistent = (hostChoice === "win" && joinChoice === "lose") ||
                          (hostChoice === "lose" && joinChoice === "win");
