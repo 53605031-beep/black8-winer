@@ -130,6 +130,21 @@ async function recordMatchParticipation(openid, matchId, isHost = false) {
   });
 }
 
+// 发起人也在 participants 里，这里统一去重，避免同一个人被重复记分。
+function getUniqueParticipantOpenids(match) {
+  const seen = new Set();
+  const openids = [];
+  const addOpenid = (openid) => {
+    if (!openid || seen.has(openid)) return;
+    seen.add(openid);
+    openids.push(openid);
+  };
+
+  addOpenid(match.hostOpenid);
+  (match.participants || []).forEach((p) => addOpenid(p.openid));
+  return openids;
+}
+
 // 辅助函数：记录完成比赛积分
 async function recordMatchComplete(openid) {
   await db.collection("yueqiu8_users").where({ openid }).update({
@@ -374,7 +389,7 @@ async function doConfirm(openid, matchId) {
     data: { status: "playing", startedAt: db.serverDate() }
   });
 
-  const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
+  const allOpenids = getUniqueParticipantOpenids(match);
   for (const uid of allOpenids) {
     const isHost = uid === match.hostOpenid;
     await recordMatchParticipation(uid, matchId, isHost);
@@ -567,4 +582,8 @@ exports.main = async (event) => {
     console.error(`matchService[${action}] error`, e);
     return { ok: false, errMsg: e.message || String(e) };
   }
+};
+
+exports._private = {
+  getUniqueParticipantOpenids
 };
