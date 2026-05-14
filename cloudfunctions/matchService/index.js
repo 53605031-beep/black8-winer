@@ -25,6 +25,8 @@ const YUEDOU_FROZEN  = 500;
 const YUEDOU_WINNER  = 420;   // 赢家获得
 const YUEDOU_LOSER   = -500;  // 输家损失
 const YUEDOU_SYSTEM  = 80;     // 系统抽成
+// 赢家结算时拿回冻结的500约豆，并额外获得420约豆。
+const YUEDOU_WINNER_AVAILABLE_INC = YUEDOU_FROZEN + YUEDOU_WINNER;
 
 // 积分常量
 const SCORE_CREATE_MATCH  = 5;
@@ -413,7 +415,19 @@ async function doSubmitResult(openid, matchId, choice) {
     const isConsistent = (hostChoice === "win" && joinChoice === "lose") ||
                          (hostChoice === "lose" && joinChoice === "win");
     if (isConsistent) {
-      await doSettleMatch(matchId, match, updated);
+      try {
+        await doSettleMatch(matchId, match, updated);
+      } catch (e) {
+        console.error("结算失败，已重置结果选择", e);
+        await db.collection("matches").doc(matchId).update({
+          data: {
+            participants: updated.map((p) => ({ ...p, resultChoice: null })),
+            settlementError: e.message || String(e),
+            settlementErrorAt: db.serverDate()
+          }
+        });
+        throw new Error("结算失败，请重新提交结果");
+      }
       return { code: "ok", bothSelected: true };
     } else {
       await db.collection("matches").doc(matchId).update({
@@ -481,54 +495,102 @@ async function doSettleMatch(matchId, match, participants) {
   const joinChoice  = choices[joinOpenid] || "";
   const venueId     = match.venueId || null;
 
-  // 1. 标记为已结算
-  await db.collection("matches").doc(matchId).update({
-    data: {
-      status: "settled",
-      finalParticipants: participants.map((p) => ({
-        openid: p.openid,
-        nickname: p.nickname,
-        resultChoice: p.resultChoice
-      }))
+  let winnerId = null, loserId = null;
+
+  if (hostChoice === "win" && joinChoice === "lose") {
+    winnerId = match.hostOpenid; loserId = joinOpenid;
+  } else if (hostChoice === "lose" && joinChoice === "win") {
+    winnerId = joinOpenid; loserId = match.hostOpenid;
+  } else {
+    // 不可能走到这里（已在 doSubmitResult 拦截），保守处理
+    return;
+  }
+
+  const finalParticipants = participants.map((p) => ({
+    openid: p.openid,
+    nickname: p.nickname,
+    resultChoice: p.resultChoice
+  }));
+
+  // 钱包、明细和球局状态必须一起成功，避免用户约豆丢失或球局假结算。
+  let didSettle = false;
+  await db.runTransaction(async (transaction) => {
+    const latestMatch = await transaction.collection("matches").doc(matchId).get();
+    if (!latestMatch.data) {
+      throw new Error("球局不存在");
     }
-  });
-
-  try {
-    let winnerId = null, loserId = null;
-
-    if (hostChoice === "win" && joinChoice === "lose") {
-      winnerId = match.hostOpenid; loserId = joinOpenid;
-    } else if (hostChoice === "lose" && joinChoice === "win") {
-      winnerId = joinOpenid; loserId = match.hostOpenid;
-    } else {
-      // 不可能走到这里（已在 doSubmitResult 拦截），保守处理
+    if (latestMatch.data.status === "settled") {
       return;
     }
+    if (latestMatch.data.status !== "playing") {
+      throw new Error("当前状态不能结算");
+    }
 
-    await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
+    const winnerRes = await transaction.collection("yueqiu8_users").where({ openid: winnerId }).limit(1).get();
+    const loserRes = await transaction.collection("yueqiu8_users").where({ openid: loserId }).limit(1).get();
+    const winnerUser = winnerRes.data && winnerRes.data[0];
+    const loserUser = loserRes.data && loserRes.data[0];
+    if (!winnerUser || !loserUser) {
+      throw new Error("结算用户不存在");
+    }
+    if ((winnerUser.yuedouFrozen || 0) < YUEDOU_FROZEN || (loserUser.yuedouFrozen || 0) < YUEDOU_FROZEN) {
+      throw new Error("冻结约豆不足，无法结算");
+    }
+
+    await transaction.collection("yueqiu8_users").doc(winnerUser._id).update({
       data: {
-        yuedou: _.inc(YUEDOU_WINNER),
+        yuedou: _.inc(YUEDOU_WINNER_AVAILABLE_INC),
+        yuedouFrozen: _.inc(-YUEDOU_FROZEN)
+      }
+    });
+    await transaction.collection("yueqiu8_users").doc(loserUser._id).update({
+      data: {
         yuedouFrozen: _.inc(-YUEDOU_FROZEN),
         yuedouSystem: _.inc(YUEDOU_SYSTEM)
       }
     });
-    await db.collection("yueqiu8_users").where({ openid: loserId }).update({
+
+    await transaction.collection("score_records").add({
       data: {
-        yuedou: _.inc(YUEDOU_LOSER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
+        userId: winnerId,
+        type: "match_win",
+        amount: YUEDOU_WINNER,
+        venueId,
+        matchId,
+        createdAt: db.serverDate()
+      }
+    });
+    await transaction.collection("score_records").add({
+      data: {
+        userId: loserId,
+        type: "match_lose",
+        amount: YUEDOU_LOSER,
+        venueId,
+        matchId,
+        createdAt: db.serverDate()
       }
     });
 
-    await addScoreRecord(winnerId, "match_win", 10, venueId, matchId);
-    await addScoreRecord(loserId, "match_lose", 0, venueId, matchId);
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        status: "settled",
+        finalParticipants,
+        settlementError: null,
+        settlementErrorAt: null
+      }
+    });
+    didSettle = true;
+  });
 
-    const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
-    const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
-    await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+10约豆，冻结约豆已解冻` });
-    await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，冻结约豆已解冻` });
+  if (!didSettle) return;
+
+  const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
+  const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
+  try {
+    await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+${YUEDOU_WINNER}约豆，冻结约豆已解冻` });
+    await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，扣${Math.abs(YUEDOU_LOSER)}约豆，冻结约豆已扣除` });
   } catch (e) {
-    console.error("约豆结算异常（需手动补偿）", e);
+    console.error("结算通知发送失败", e);
   }
 
   // 2. 完成比赛积分
