@@ -12,6 +12,7 @@
  *   submitResult     提交比赛结果选择
  *   verifyLocation  校验位置
  *   publish          发布新球局（与 join 同级）
+ *   cancelByVenueOwner 商家取消本店球局并退还冻结约豆
  */
 const cloud = require("wx-server-sdk");
 
@@ -470,6 +471,96 @@ async function doVerifyLocation(openid, matchId, userLat, userLon, maxDistanceKm
   return { code: "ok", verified: true, distance: dist };
 }
 
+// ── 商家取消本店球局 ───────────────────────────────────────
+async function doCancelByVenueOwner(openid, matchId) {
+  const match = await getMatch(matchId);
+  if (!match) throw new Error("球局不存在");
+  if (!["recruiting", "playing"].includes(match.status)) {
+    throw new Error("当前状态不可取消");
+  }
+  if (!match.venueId) throw new Error("球局缺少球房信息，无法确认商家权限");
+
+  const venueRes = await db.collection("venues").doc(match.venueId).get();
+  const venue = venueRes.data;
+  if (!venue || venue.ownerOpenid !== openid) {
+    throw new Error("仅球房商家可取消本店球局");
+  }
+
+  let cancelledMatch = null;
+  const matchRef = db.collection("matches").doc(matchId);
+
+  await db.runTransaction(async (transaction) => {
+    const freshRes = await transaction.get(matchRef);
+    const freshMatch = freshRes.data;
+    if (!freshMatch) throw new Error("球局不存在");
+    if (!["recruiting", "playing"].includes(freshMatch.status)) {
+      throw new Error("当前状态不可取消");
+    }
+    if (freshMatch.venueId !== match.venueId) {
+      throw new Error("球局球房信息已变化，请刷新后重试");
+    }
+
+    const participants = freshMatch.participants || [];
+    const refundedParticipants = [];
+    const refundedOpenids = [];
+
+    for (const p of participants) {
+      const frozen = Number(p.yuedouFrozen || 0);
+      if (p.openid && frozen > 0) {
+        const userRes = await transaction.get(
+          db.collection("yueqiu8_users").where({ openid: p.openid })
+        );
+        const user = userRes.data && userRes.data[0];
+        if (!user) throw new Error("用户不存在，取消失败，请稍后重试");
+
+        await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+          data: {
+            yuedou: _.inc(frozen),
+            yuedouFrozen: _.inc(-frozen)
+          }
+        });
+        refundedOpenids.push(p.openid);
+        refundedParticipants.push({ ...p, yuedouFrozen: 0 });
+      } else {
+        refundedParticipants.push(p);
+      }
+    }
+
+    await transaction.update(matchRef, {
+      data: {
+        status: "cancelled",
+        participants: refundedParticipants,
+        closedAt: db.serverDate(),
+        closedBy: openid,
+        closedByRole: "venue_owner"
+      }
+    });
+
+    cancelledMatch = { ...freshMatch, refundedOpenids };
+  });
+
+  const noticeTargets = Array.from(new Set([
+    match.hostOpenid,
+    ...((cancelledMatch?.participants || match.participants || []).map((p) => p.openid))
+  ].filter(Boolean)));
+
+  for (const targetOpenid of noticeTargets) {
+    try {
+      await addNotice({
+        type: "match_canceled",
+        targetOpenid,
+        matchId,
+        venueId: match.venueId,
+        content: `「${match.venueName || venue.name || "本店"}」球局已由商家取消，冻结约豆已退还`
+      });
+    } catch (e) {
+      console.error(`商家取消球局通知失败 uid=${targetOpenid}`, e);
+    }
+  }
+
+  return { code: "cancelled", refundedCount: cancelledMatch?.refundedOpenids?.length || 0 };
+}
+
 // ── 结算 ───────────────────────────────────────────────────
 async function doSettleMatch(matchId, match, participants) {
   const choices = {};
@@ -560,6 +651,8 @@ exports.main = async (event) => {
         return { ok: true, ...(await doSubmitResult(OPENID, matchId, choice)) };
       case "verifyLocation":
         return await doVerifyLocation(OPENID, matchId, userLat, userLon, maxDistanceKm);
+      case "cancelByVenueOwner":
+        return { ok: true, ...(await doCancelByVenueOwner(OPENID, matchId)) };
       default:
         return { ok: false, errMsg: "未知操作: " + action };
     }
