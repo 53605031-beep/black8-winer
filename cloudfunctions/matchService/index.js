@@ -23,7 +23,7 @@ const _ = db.command;
 const YUEDOU_INITIAL = 10000;
 const YUEDOU_FROZEN  = 500;
 const YUEDOU_WINNER  = 420;   // 赢家获得
-const YUEDOU_LOSER   = -500;  // 输家损失
+const YUEDOU_LOSER   = 500;    // 输家消耗已冻结的约豆
 const YUEDOU_SYSTEM  = 80;     // 系统抽成
 
 // 积分常量
@@ -514,8 +514,8 @@ async function doSettleMatch(matchId, match, participants) {
     });
     await db.collection("yueqiu8_users").where({ openid: loserId }).update({
       data: {
-        yuedou: _.inc(YUEDOU_LOSER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
+        // 加入/发布时已从可用余额扣到冻结余额，结算时只清掉冻结额，避免重复扣款。
+        yuedouFrozen: _.inc(-YUEDOU_LOSER),
         yuedouSystem: _.inc(YUEDOU_SYSTEM)
       }
     });
