@@ -14,6 +14,12 @@
  *   publish          发布新球局（与 join 同级）
  */
 const cloud = require("wx-server-sdk");
+const {
+  YUEDOU_FROZEN,
+  YUEDOU_WINNER,
+  YUEDOU_SYSTEM,
+  buildSettlementDeltas
+} = require("./settlement");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -21,10 +27,6 @@ const _ = db.command;
 
 // 约豆常量（与 utils/cloudDB.js 保持一致）
 const YUEDOU_INITIAL = 10000;
-const YUEDOU_FROZEN  = 500;
-const YUEDOU_WINNER  = 420;   // 赢家获得
-const YUEDOU_LOSER   = -500;  // 输家损失
-const YUEDOU_SYSTEM  = 80;     // 系统抽成
 
 // 积分常量
 const SCORE_CREATE_MATCH  = 5;
@@ -505,18 +507,22 @@ async function doSettleMatch(matchId, match, participants) {
       return;
     }
 
+    const winnerFrozen = participants.find((p) => p.openid === winnerId)?.yuedouFrozen;
+    const loserFrozen = participants.find((p) => p.openid === loserId)?.yuedouFrozen;
+    const deltas = buildSettlementDeltas(winnerFrozen, loserFrozen);
+
     await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
       data: {
-        yuedou: _.inc(YUEDOU_WINNER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
+        yuedou: _.inc(deltas.winner.yuedou),
+        yuedouFrozen: _.inc(deltas.winner.yuedouFrozen),
+        yuedouSystem: _.inc(deltas.winner.yuedouSystem)
       }
     });
     await db.collection("yueqiu8_users").where({ openid: loserId }).update({
       data: {
-        yuedou: _.inc(YUEDOU_LOSER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
+        yuedou: _.inc(deltas.loser.yuedou),
+        yuedouFrozen: _.inc(deltas.loser.yuedouFrozen),
+        yuedouSystem: _.inc(deltas.loser.yuedouSystem)
       }
     });
 
@@ -525,7 +531,7 @@ async function doSettleMatch(matchId, match, participants) {
 
     const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
     const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
-    await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+10约豆，冻结约豆已解冻` });
+    await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+${deltas.winnerReward}约豆，冻结约豆已解冻` });
     await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，冻结约豆已解冻` });
   } catch (e) {
     console.error("约豆结算异常（需手动补偿）", e);

@@ -232,6 +232,32 @@ const YUEDOU_INITIAL     = 10000;  // 新用户注册赠送
 const YUEDOU_DAILY_BONUS = 1000;  // 每日礼包每次领取额度
 const YUEDOU_DAILY_POOL  = 50000; // 每日总资金池（够50人）
 
+function _toFrozenAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function _buildSettlementDeltas(winnerFrozen = YUEDOU_FROZEN, loserFrozen = YUEDOU_FROZEN) {
+  const winnerStake = _toFrozenAmount(winnerFrozen);
+  const loserStake = _toFrozenAmount(loserFrozen);
+  const systemFee = Math.min(YUEDOU_SYSTEM, loserStake);
+  const winnerReward = Math.max(loserStake - systemFee, 0);
+
+  return {
+    winner: {
+      yuedou: winnerStake + winnerReward,
+      yuedouFrozen: -winnerStake,
+      yuedouSystem: 0
+    },
+    loser: {
+      yuedou: 0,
+      yuedouFrozen: -loserStake,
+      yuedouSystem: systemFee
+    },
+    winnerReward
+  };
+}
+
 /**
  * 获取我当前招募中/进行中的球局（用于禁止同时发起多局）
  */
@@ -423,12 +449,24 @@ async function _settleMatch(matchId, match, participants) {
 
     if (winnerId) {
 
-      // 赢家得420，系统得80，输者扣500
+      const winnerFrozen = participants.find((p) => p.openid === winnerId)?.yuedouFrozen;
+      const loserFrozen = participants.find((p) => p.openid === loserId)?.yuedouFrozen;
+      const deltas = _buildSettlementDeltas(winnerFrozen, loserFrozen);
+
+      // 赢家拿回自己的冻结约豆，再获得输方扣除系统抽成后的奖励
       await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
-        data: { yuedou: db.command.inc(YUEDOU_WINNER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
+        data: {
+          yuedou: db.command.inc(deltas.winner.yuedou),
+          yuedouFrozen: db.command.inc(deltas.winner.yuedouFrozen),
+          yuedouSystem: db.command.inc(deltas.winner.yuedouSystem)
+        }
       });
       await db.collection("yueqiu8_users").where({ openid: loserId }).update({
-        data: { yuedou: db.command.inc(-YUEDOU_LOSER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
+        data: {
+          yuedou: db.command.inc(deltas.loser.yuedou),
+          yuedouFrozen: db.command.inc(deltas.loser.yuedouFrozen),
+          yuedouSystem: db.command.inc(deltas.loser.yuedouSystem)
+        }
       });
 
       // 写约豆记录
@@ -437,7 +475,7 @@ async function _settleMatch(matchId, match, participants) {
 
       const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
       const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
-      await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+10约豆，冻结约豆已解冻`, createdAt: db.serverDate() });
+      await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+${deltas.winnerReward}约豆，冻结约豆已解冻`, createdAt: db.serverDate() });
       await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，冻结约豆已解冻`, createdAt: db.serverDate() });
     }
   } catch (e) {
@@ -580,12 +618,16 @@ async function getCurrentUser() {
     });
     ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
   } else {
-    // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
+    // 老用户迁移：只补缺失字段，余额为 0 代表用户真的用完了，不能重置成新用户赠送额。
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
+    const needsFix = u.yuedou == null && (u.score != null && u.score > 0);
     if (needsFix) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: {
+          yuedou: YUEDOU_INITIAL,
+          yuedouFrozen: u.yuedouFrozen == null ? 0 : u.yuedouFrozen,
+          yuedouSystem: u.yuedouSystem == null ? 0 : u.yuedouSystem
+        }
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
