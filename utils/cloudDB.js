@@ -340,6 +340,19 @@ async function leaveMatch(matchId) {
   return out;
 }
 
+/**
+ * 商家取消本店球局（走云函数，服务端校验商家身份并退还冻结约豆）
+ */
+async function cancelMatchByVenueOwner(matchId) {
+  const res = await wx.cloud.callFunction({
+    name: "matchService",
+    data: { action: "cancelByVenueOwner", matchId }
+  });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "取消失败");
+  return out;
+}
+
 /* ─────────────────────────────── 阶段2：满员确认 ─────────────────────────────── */
 
 /**
@@ -1712,6 +1725,7 @@ module.exports = {
   publishMatch,
   joinMatch,
   leaveMatch,
+  cancelMatchByVenueOwner,
   confirmMatch,
   verifyLocation,
   submitResultChoice,
