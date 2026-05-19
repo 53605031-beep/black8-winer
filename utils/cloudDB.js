@@ -580,12 +580,15 @@ async function getCurrentUser() {
     });
     ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
   } else {
-    // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
+    // 老用户迁移：只补缺失字段，不能把用户真实的 0 余额重置成初始约豆。
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
-    if (needsFix) {
+    const yuedouFix = {};
+    if (u.yuedou == null) yuedouFix.yuedou = YUEDOU_INITIAL;
+    if (u.yuedouFrozen == null) yuedouFix.yuedouFrozen = 0;
+    if (u.yuedouSystem == null) yuedouFix.yuedouSystem = 0;
+    if (Object.keys(yuedouFix).length > 0) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: yuedouFix
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
@@ -669,54 +672,67 @@ async function claimDailyBonus() {
 
   if (!poolRecord || !poolRecord.data) {
     // 今日池子还不存在，创建它
-    await db.collection("daily_pools").add({
-      data: {
-        _id: today,
-        totalPool: YUEDOU_DAILY_POOL,
-        remaining: YUEDOU_DAILY_POOL,
-        totalClaimed: 0,
-        claimants: [],
-        createdAt: db.serverDate()
-      }
-    });
+    try {
+      await db.collection("daily_pools").add({
+        data: {
+          _id: today,
+          totalPool: YUEDOU_DAILY_POOL,
+          remaining: YUEDOU_DAILY_POOL,
+          totalClaimed: 0,
+          claimants: [],
+          createdAt: db.serverDate()
+        }
+      });
+    } catch (e) {
+      // 可能是别人刚创建了今日池子，后面的事务会重新读取最新数据。
+    }
     poolRecord = { data: { _id: today, totalPool: YUEDOU_DAILY_POOL, remaining: YUEDOU_DAILY_POOL, totalClaimed: 0, claimants: [] } };
   }
 
-  const pool = poolRecord.data;
+  const result = await db.runTransaction(async (transaction) => {
+    const latestPoolRecord = await transaction.get(db.collection("daily_pools").doc(today));
+    const pool = latestPoolRecord.data || {};
 
-  // 2. 已在 claimants 中，今天领过了
-  if ((pool.claimants || []).includes(openid)) {
-    return { code: "already_claimed", remaining: pool.remaining, totalClaimed: pool.totalClaimed };
-  }
-
-  // 3. 池子空了
-  if ((pool.remaining || 0) < YUEDOU_DAILY_BONUS) {
-    return { code: "pool_empty", remaining: 0, totalClaimed: pool.totalClaimed };
-  }
-
-  // 4. 发放约豆
-  await db.collection("yueqiu8_users").where({ openid }).update({
-    data: { yuedou: db.command.inc(YUEDOU_DAILY_BONUS) }
-  });
-
-  // 5. 更新池子：remaining 减少，claimants 加入当前用户
-  await db.collection("daily_pools").doc(today).update({
-    data: {
-      remaining: db.command.inc(-YUEDOU_DAILY_BONUS),
-      totalClaimed: db.command.inc(YUEDOU_DAILY_BONUS),
-      claimants: db.command.push(openid)
+    // 已在 claimants 中，今天领过了
+    if ((pool.claimants || []).includes(openid)) {
+      return { code: "already_claimed", remaining: pool.remaining || 0, totalClaimed: pool.totalClaimed || 0 };
     }
+
+    // 池子空了
+    if ((pool.remaining || 0) < YUEDOU_DAILY_BONUS) {
+      return { code: "pool_empty", remaining: 0, totalClaimed: pool.totalClaimed || 0 };
+    }
+
+    // 发约豆和记领取人必须一起成功，避免重复领取或只发钱不记账。
+    transaction.update(db.collection("yueqiu8_users").where({ openid }), {
+      data: { yuedou: db.command.inc(YUEDOU_DAILY_BONUS) }
+    });
+    transaction.update(db.collection("daily_pools").doc(today), {
+      data: {
+        remaining: db.command.inc(-YUEDOU_DAILY_BONUS),
+        totalClaimed: db.command.inc(YUEDOU_DAILY_BONUS),
+        claimants: db.command.push(openid)
+      }
+    });
+
+    return {
+      code: "ok",
+      remaining: (pool.remaining || 0) - YUEDOU_DAILY_BONUS,
+      totalClaimed: (pool.totalClaimed || 0) + YUEDOU_DAILY_BONUS
+    };
   });
 
   // 6. 发一条通知
-  await addNotice({
-    type: "daily_bonus",
-    targetOpenid: openid,
-    content: `每日礼包到账 +${YUEDOU_DAILY_BONUS} 约豆，今日资金池剩余 ${pool.remaining - YUEDOU_DAILY_BONUS} 约豆`,
-    createdAt: db.serverDate()
-  });
+  if (result.code === "ok") {
+    await addNotice({
+      type: "daily_bonus",
+      targetOpenid: openid,
+      content: `每日礼包到账 +${YUEDOU_DAILY_BONUS} 约豆，今日资金池剩余 ${result.remaining} 约豆`,
+      createdAt: db.serverDate()
+    });
+  }
 
-  return { code: "ok", remaining: pool.remaining - YUEDOU_DAILY_BONUS, totalClaimed: pool.totalClaimed + YUEDOU_DAILY_BONUS };
+  return result;
 }
 
 /**
