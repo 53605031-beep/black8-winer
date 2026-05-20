@@ -1,0 +1,9 @@
+{
+  "name": "economyService",
+  "version": "1.0.0",
+  "description": "约球8 · 约豆礼包和商城兑换原子操作",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}
