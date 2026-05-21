@@ -43,6 +43,12 @@ async function getMatch(matchId) {
   return res.data || null;
 }
 
+// 辅助函数：服务端获取球房数据
+async function getVenue(venueId) {
+  const res = await db.collection("venues").doc(venueId).get();
+  return res.data || null;
+}
+
 // 辅助函数：添加通知
 async function addNotice({ type, targetOpenid, matchId, content, venueId }) {
   await db.collection("notices").add({
@@ -70,6 +76,28 @@ async function addScoreRecord(userId, type, amount, venueId, matchId) {
       createdAt: db.serverDate()
     }
   });
+}
+
+// 按球局参与人快照退还本局冻结约豆，避免误退用户其他球局的冻结金额
+async function refundMatchFrozenParticipants(participants, matchId) {
+  const refundedOpenids = new Set();
+  for (const p of participants || []) {
+    const openid = p.openid;
+    const frozenAmount = p.yuedouFrozen ?? 0;
+    if (!openid || frozenAmount <= 0 || refundedOpenids.has(openid)) continue;
+
+    refundedOpenids.add(openid);
+    try {
+      await db.collection("yueqiu8_users").where({ openid }).update({
+        data: {
+          yuedou: _.inc(frozenAmount),
+          yuedouFrozen: _.inc(-frozenAmount)
+        }
+      });
+    } catch (e) {
+      console.error(`退款失败 matchId=${matchId} openid=${openid}`, e);
+    }
+  }
 }
 
 // 辅助函数：记录球房访问
@@ -301,31 +329,14 @@ async function doLeave(openid, matchId) {
 
   const frozenAmount = me.yuedouFrozen ?? 0;
 
-  // 安全校验：非发起人在进行中/已结算状态不能退出
-  if (match.hostOpenid !== openid) {
-    if (["playing", "settled", "finished"].includes(match.status)) {
-      throw new Error("比赛已开始或已结束，普通参与者不能退出");
-    }
+  if (match.status !== "recruiting") {
+    throw new Error("比赛已开始或已结束，不能退出");
   }
 
   if (match.hostOpenid === openid) {
     // 发起人：删除球局，退款所有人
     await db.collection("matches").doc(matchId).remove();
-
-    for (const p of match.participants || []) {
-      if ((p.yuedouFrozen ?? 0) > 0) {
-        try {
-          await db.collection("yueqiu8_users").where({ openid: p.openid }).update({
-            data: {
-              yuedou: _.inc(p.yuedouFrozen),
-              yuedouFrozen: _.inc(-p.yuedouFrozen)
-            }
-          });
-        } catch (e) {
-          console.error(`退款失败 ${p.openid}`, e);
-        }
-      }
-    }
+    await refundMatchFrozenParticipants(match.participants, matchId);
 
     await addNotice({
       type: "match_canceled",
@@ -360,6 +371,54 @@ async function doLeave(openid, matchId) {
   return { code: "left" };
 }
 
+// ── 商家取消本店球局 ───────────────────────────────────────
+async function doCancelByVenueOwner(openid, matchId) {
+  const match = await getMatch(matchId);
+  if (!match) throw new Error("球局不存在");
+  if (!["recruiting", "playing"].includes(match.status)) {
+    throw new Error("当前状态不可取消");
+  }
+
+  const venueId = match.venueId;
+  if (!venueId) throw new Error("球局缺少球房信息");
+
+  const venue = await getVenue(venueId);
+  if (!venue || venue.ownerOpenid !== openid) {
+    throw new Error("仅球房商家可取消本店球局");
+  }
+
+  await refundMatchFrozenParticipants(match.participants, matchId);
+
+  const participants = (match.participants || []).map((p) => ({
+    ...p,
+    yuedouFrozen: 0
+  }));
+  await db.collection("matches").doc(matchId).update({
+    data: {
+      status: "cancelled",
+      participants,
+      cancelledAt: db.serverDate(),
+      cancelledBy: openid,
+      cancelledByRole: "venue_owner"
+    }
+  });
+
+  const notifiedOpenids = new Set();
+  for (const p of match.participants || []) {
+    if (!p.openid || notifiedOpenids.has(p.openid)) continue;
+    notifiedOpenids.add(p.openid);
+    await addNotice({
+      type: "match_canceled",
+      targetOpenid: p.openid,
+      matchId,
+      venueId,
+      content: `「${match.venueName || venue.name || "本店"}」球局已由商家取消，冻结约豆已退还`
+    });
+  }
+
+  return { code: "cancelled" };
+}
+
 // ── 确认比赛开始 ───────────────────────────────────────────
 async function doConfirm(openid, matchId) {
   const match = await getMatch(matchId);
@@ -374,7 +433,7 @@ async function doConfirm(openid, matchId) {
     data: { status: "playing", startedAt: db.serverDate() }
   });
 
-  const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
+  const allOpenids = Array.from(new Set((match.participants || []).map((p) => p.openid).filter(Boolean)));
   for (const uid of allOpenids) {
     const isHost = uid === match.hostOpenid;
     await recordMatchParticipation(uid, matchId, isHost);
@@ -476,7 +535,7 @@ async function doSettleMatch(matchId, match, participants) {
   participants.forEach((p) => { choices[p.openid] = p.resultChoice; });
 
   const hostChoice  = choices[match.hostOpenid] || "";
-  const openids     = participants.map((p) => p.openid);
+  const openids     = Array.from(new Set(participants.map((p) => p.openid).filter(Boolean)));
   const joinOpenid  = openids.find((o) => o !== match.hostOpenid);
   const joinChoice  = choices[joinOpenid] || "";
   const venueId     = match.venueId || null;
@@ -485,6 +544,10 @@ async function doSettleMatch(matchId, match, participants) {
   await db.collection("matches").doc(matchId).update({
     data: {
       status: "settled",
+      participants: participants.map((p) => ({
+        ...p,
+        yuedouFrozen: 0
+      })),
       finalParticipants: participants.map((p) => ({
         openid: p.openid,
         nickname: p.nickname,
@@ -554,6 +617,8 @@ exports.main = async (event) => {
         return { ok: true, ...(await doJoin(OPENID, matchId)) };
       case "leave":
         return { ok: true, ...(await doLeave(OPENID, matchId)) };
+      case "cancelByVenueOwner":
+        return { ok: true, ...(await doCancelByVenueOwner(OPENID, matchId)) };
       case "confirm":
         return { ok: true, ...(await doConfirm(OPENID, matchId)) };
       case "submitResult":

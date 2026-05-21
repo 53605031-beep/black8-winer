@@ -86,30 +86,37 @@ Page({
   async onCancelMatch(e) {
     const match = e.currentTarget.dataset.match;
     if (!match) return;
+    if (!this.data.isOwner) {
+      wx.showToast({ title: "无权取消该球局", icon: "none" });
+      return;
+    }
 
     wx.showModal({
       title: "取消球局",
-      content: `确认取消「${match.startAtText}」这场球局吗？`,
+      content: `确认取消「${match.startAtText}」这场球局吗？\n已冻结的约豆会退还给参与人。`,
       success: async (res) => {
         if (!res.confirm) return;
 
         wx.showLoading({ title: "处理中..." });
         try {
-          const db = cloudDB.DB();
-          await db.collection("matches").doc(match._id).update({
-            data: { status: "cancelled" }
-          });
+          await cloudDB.cancelMatchByVenueOwner(match._id);
           wx.hideLoading();
           wx.showToast({ title: "球局已取消", icon: "success" });
           // 刷新球局列表
           const venueId = this.data.venue._id;
           const rawMatches = await cloudDB.getMatchesByVenue(venueId);
           this.setData({
-            venueMatches: rawMatches.filter((m) => m.status !== "cancelled")
+            venueMatches: rawMatches.map((m) => ({
+              ...m,
+              startAtText: formatDateTime(m.startAt),
+              playTypeText: playTypeLabel(m.playType),
+              costModeText: costModeLabel(m.costMode || "aa"),
+              hostNickname: m.hostNickname || m.host?.nickname || "球友"
+            }))
           });
         } catch (err) {
           wx.hideLoading();
-          wx.showToast({ title: "操作失败", icon: "none" });
+          wx.showToast({ title: err.message || "操作失败", icon: "none" });
         }
       }
     });

@@ -340,6 +340,19 @@ async function leaveMatch(matchId) {
   return out;
 }
 
+/**
+ * 商家取消本店球局（走云函数校验商家身份并退还冻结约豆）
+ */
+async function cancelMatchByVenueOwner(matchId) {
+  const res = await wx.cloud.callFunction({
+    name: "matchService",
+    data: { action: "cancelByVenueOwner", matchId }
+  });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "取消失败");
+  return out;
+}
+
 /* ─────────────────────────────── 阶段2：满员确认 ─────────────────────────────── */
 
 /**
@@ -473,25 +486,23 @@ async function closeMatch(matchId, closerOpenid) {
     if (!isHost) throw new Error("仅发起人可关闭招募中的球局");
   }
 
-  // 进行中（超时）：冻结约豆解冻
-  if (match.status === "playing") {
-    const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
-    for (const uid of allOpenids) {
-      try {
-        const userRec = await db.collection("yueqiu8_users").where({ openid: uid }).get();
-        const user = userRec.data[0];
-        const frozen = user?.yuedouFrozen ?? 0;
-        if (frozen > 0) {
-          await db.collection("yueqiu8_users").where({ openid: uid }).update({
-            data: {
-              yuedou: db.command.inc(frozen),
-              yuedouFrozen: db.command.inc(-frozen)
-            }
-          });
+  // 关闭球局时只退还本局冻结的约豆，不能把用户其他球局的冻结额一起退掉
+  const refundedOpenids = new Set();
+  for (const p of match.participants || []) {
+    const uid = p.openid;
+    const frozen = p.yuedouFrozen ?? 0;
+    if (!uid || frozen <= 0 || refundedOpenids.has(uid)) continue;
+
+    refundedOpenids.add(uid);
+    try {
+      await db.collection("yueqiu8_users").where({ openid: uid }).update({
+        data: {
+          yuedou: db.command.inc(frozen),
+          yuedouFrozen: db.command.inc(-frozen)
         }
-      } catch (e) {
-        console.error(`closeMatch 解冻约豆失败 uid=${uid}`, e);
-      }
+      });
+    } catch (e) {
+      console.error(`closeMatch 解冻约豆失败 uid=${uid}`, e);
     }
   }
 
@@ -580,12 +591,15 @@ async function getCurrentUser() {
     });
     ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
   } else {
-    // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
+    // 老用户迁移：只补充真正缺失的约豆字段，余额为 0 也是合法状态
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
-    if (needsFix) {
+    const yuedouFix = {};
+    if (u.yuedou == null) yuedouFix.yuedou = YUEDOU_INITIAL;
+    if (u.yuedouFrozen == null) yuedouFix.yuedouFrozen = 0;
+    if (u.yuedouSystem == null) yuedouFix.yuedouSystem = 0;
+    if (Object.keys(yuedouFix).length > 0) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: yuedouFix
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
@@ -1712,6 +1726,7 @@ module.exports = {
   publishMatch,
   joinMatch,
   leaveMatch,
+  cancelMatchByVenueOwner,
   confirmMatch,
   verifyLocation,
   submitResultChoice,
