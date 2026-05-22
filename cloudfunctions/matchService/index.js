@@ -23,7 +23,8 @@ const _ = db.command;
 const YUEDOU_INITIAL = 10000;
 const YUEDOU_FROZEN  = 500;
 const YUEDOU_WINNER  = 420;   // 赢家获得
-const YUEDOU_LOSER   = -500;  // 输家损失
+// 输家损失来自开局时冻结的 500 约豆，结算时只清冻结额，不能再扣可用余额。
+const YUEDOU_LOSER_SETTLEMENT_DELTA = 0;
 const YUEDOU_SYSTEM  = 80;     // 系统抽成
 
 // 积分常量
@@ -514,7 +515,7 @@ async function doSettleMatch(matchId, match, participants) {
     });
     await db.collection("yueqiu8_users").where({ openid: loserId }).update({
       data: {
-        yuedou: _.inc(YUEDOU_LOSER),
+        yuedou: _.inc(YUEDOU_LOSER_SETTLEMENT_DELTA),
         yuedouFrozen: _.inc(-YUEDOU_FROZEN),
         yuedouSystem: _.inc(YUEDOU_SYSTEM)
       }
@@ -526,7 +527,7 @@ async function doSettleMatch(matchId, match, participants) {
     const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
     const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
     await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+10约豆，冻结约豆已解冻` });
-    await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，冻结约豆已解冻` });
+    await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，本场冻结的约豆已作为输局扣除` });
   } catch (e) {
     console.error("约豆结算异常（需手动补偿）", e);
   }
