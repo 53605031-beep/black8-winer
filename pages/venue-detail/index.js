@@ -95,10 +95,7 @@ Page({
 
         wx.showLoading({ title: "处理中..." });
         try {
-          const db = cloudDB.DB();
-          await db.collection("matches").doc(match._id).update({
-            data: { status: "cancelled" }
-          });
+          await cloudDB.cancelMatchByVenueOwner(match._id);
           wx.hideLoading();
           wx.showToast({ title: "球局已取消", icon: "success" });
           // 刷新球局列表
