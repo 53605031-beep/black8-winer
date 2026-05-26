@@ -150,10 +150,16 @@ async function redeemGoods(openid, goodsId, address) {
   const countRes = await db.collection("mall_redemptions")
     .where({ openid, createdAt: _.gte(new Date(todayStart)) })
     .count();
-  if ((countRes.total || 0) >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
+  const existingTodayCount = countRes.total || 0;
+  if (existingTodayCount >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
 
   let currencyType = goods.currencyType || "score";
+  const limitId = `${today}_${openid}`;
   await db.runTransaction(async (transaction) => {
+    const limitDoc = await txGetDocOrNull(transaction, "daily_redemption_limits", limitId);
+    const usedToday = limitDoc ? (limitDoc.count || 0) : existingTodayCount;
+    if (usedToday >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
+
     const userRes = await transaction.collection("yueqiu8_users").doc(user._id).get();
     const latestUser = userRes.data;
     if (!latestUser) throw new Error("用户不存在，请先登录");
@@ -177,6 +183,21 @@ async function redeemGoods(openid, goodsId, address) {
     await transaction.collection("mall_goods").doc(goodsId).update({
       data: { stock: _.inc(-1), redeemedCount: _.inc(1) }
     });
+    if (limitDoc) {
+      await transaction.collection("daily_redemption_limits").doc(limitId).update({
+        data: { count: _.inc(1), updatedAt: db.serverDate() }
+      });
+    } else {
+      await transaction.collection("daily_redemption_limits").doc(limitId).set({
+        data: {
+          openid,
+          date: today,
+          count: usedToday + 1,
+          createdAt: db.serverDate(),
+          updatedAt: db.serverDate()
+        }
+      });
+    }
     await transaction.collection("mall_redemptions").add({
       data: {
         openid,

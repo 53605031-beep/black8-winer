@@ -192,6 +192,33 @@ function _monthStartStr() {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+function _toMillis(value) {
+  if (!value) return null;
+  if (typeof value === "number") return value;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function _assertCloseWindow(match, actorOpenid) {
+  const isHost = match.hostOpenid === actorOpenid;
+  const isParticipant = (match.participants || []).some((p) => p.openid === actorOpenid);
+  if (!isHost && !isParticipant) throw new Error("你无权关闭此球局");
+
+  if (match.status === "recruiting") {
+    if (!isHost) throw new Error("仅发起人可关闭招募中的球局");
+    const startAt = _toMillis(match.startAt);
+    if (!startAt || startAt > Date.now()) throw new Error("未到开赛时间，不能关闭球局");
+    return;
+  }
+
+  if (match.status === "playing") {
+    const startedAt = _toMillis(match.startedAt);
+    if (startedAt && Date.now() - startedAt <= 6 * 60 * 60 * 1000) {
+      throw new Error("比赛开始未超过6小时，不能强制关闭");
+    }
+  }
+}
+
 async function cancelMatchAndRefund(matchId, actorOpenid, options = {}) {
   const before = await getMatch(matchId);
   if (!before) throw new Error("球局不存在");
@@ -446,21 +473,28 @@ async function doLeave(openid, matchId) {
 
 // ── 确认比赛开始 ───────────────────────────────────────────
 async function doConfirm(openid, matchId) {
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
-  if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
-  if (match.status !== "recruiting") throw new Error("当前状态不可确认");
+  let confirmedMatch = null;
+  await db.runTransaction(async (transaction) => {
+    const matchRes = await transaction.collection("matches").doc(matchId).get();
+    const match = matchRes.data;
+    if (!match) throw new Error("球局不存在");
+    if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
+    if (match.status !== "recruiting") throw new Error("当前状态不可确认");
+    if ((match.participants || []).length < (match.headcountTarget || 2)) {
+      throw new Error("球局未满员，不能开始比赛");
+    }
+    const allVerified = (match.participants || []).every((p) => p.locationVerified);
+    if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
 
-  const allVerified = (match.participants || []).every((p) => p.locationVerified);
-  if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
-
-  await db.collection("matches").doc(matchId).update({
-    data: { status: "playing", startedAt: db.serverDate() }
+    await transaction.collection("matches").doc(matchId).update({
+      data: { status: "playing", startedAt: db.serverDate() }
+    });
+    confirmedMatch = match;
   });
 
-  const allOpenids = Array.from(new Set([match.hostOpenid, ...(match.participants || []).map((p) => p.openid)]));
+  const allOpenids = Array.from(new Set([confirmedMatch.hostOpenid, ...(confirmedMatch.participants || []).map((p) => p.openid)]));
   for (const uid of allOpenids) {
-    const isHost = uid === match.hostOpenid;
+    const isHost = uid === confirmedMatch.hostOpenid;
     await recordMatchParticipation(uid, matchId, isHost);
   }
 
@@ -556,19 +590,12 @@ async function doVerifyLocation(openid, matchId, userLat, userLon, maxDistanceKm
 async function doClose(openid, matchId) {
   const match = await getMatch(matchId);
   if (!match) throw new Error("球局不存在");
-
-  const isHost = match.hostOpenid === openid;
-  const isParticipant = (match.participants || []).some((p) => p.openid === openid);
-  if (!isHost && !isParticipant) throw new Error("你无权关闭此球局");
-  if (match.status === "recruiting" && !isHost) throw new Error("仅发起人可关闭招募中的球局");
+  _assertCloseWindow(match, openid);
 
   await cancelMatchAndRefund(matchId, openid, {
     reason: match.status === "recruiting" ? "host_close" : "timeout_close",
     validate: (current) => {
-      const currentHost = current.hostOpenid === openid;
-      const currentParticipant = (current.participants || []).some((p) => p.openid === openid);
-      if (!currentHost && !currentParticipant) throw new Error("你无权关闭此球局");
-      if (current.status === "recruiting" && !currentHost) throw new Error("仅发起人可关闭招募中的球局");
+      _assertCloseWindow(current, openid);
     }
   });
 
