@@ -481,6 +481,7 @@ async function cancelMatchByVenueOwner(matchId) {
  * 提交对战结果（兼容旧逻辑，约豆结算由 _settleMatch 统一处理）
  */
 async function submitMatchResult(matchId, winnerId, loserId) {
+  const db = DB();
   await db.collection("matches").doc(matchId).update({ data: { status: "finished" } });
   await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
     data: { score: db.command.inc(10), totalWin: db.command.inc(1) }

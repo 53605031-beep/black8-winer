@@ -288,8 +288,8 @@ async function doPublish(openid, matchData) {
 
     await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
-        yuedou: _.inc(-YUEDOU_FROZEN),
-        yuedouFrozen: _.inc(YUEDOU_FROZEN)
+        yuedou: yuedou - YUEDOU_FROZEN,
+        yuedouFrozen: (latestUser.yuedouFrozen || 0) + YUEDOU_FROZEN
       }
     });
   });
@@ -355,8 +355,8 @@ async function doJoin(openid, matchId) {
     });
     await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
-        yuedou: _.inc(-YUEDOU_FROZEN),
-        yuedouFrozen: _.inc(YUEDOU_FROZEN)
+        yuedou: yuedou - YUEDOU_FROZEN,
+        yuedouFrozen: (latestUser.yuedouFrozen || 0) + YUEDOU_FROZEN
       }
     });
   });
@@ -640,9 +640,11 @@ async function doSettleMatch(matchId, match, participants) {
 
   const winner = participants.find((p) => p.openid === winnerId);
   const loser = participants.find((p) => p.openid === loserId);
-  const winnerFrozen = winner?.yuedouFrozen ?? YUEDOU_FROZEN;
-  const loserFrozen = loser?.yuedouFrozen ?? YUEDOU_FROZEN;
-  const loserRefund = Math.max(0, loserFrozen - Math.abs(YUEDOU_LOSER));
+  const winnerFrozen = winner?.yuedouFrozen ?? 0;
+  const loserFrozen = loser?.yuedouFrozen ?? 0;
+  const loserStake = Math.abs(YUEDOU_LOSER);
+  const loserDirectDebit = Math.max(0, loserStake - loserFrozen);
+  const loserRefund = Math.max(0, loserFrozen - loserStake);
 
   await db.runTransaction(async (transaction) => {
     const latestMatchRes = await transaction.collection("matches").doc(matchId).get();
@@ -661,7 +663,7 @@ async function doSettleMatch(matchId, match, participants) {
     });
     await transaction.collection("yueqiu8_users").doc(userDocs[loserId]._id).update({
       data: {
-        yuedou: _.inc(loserRefund),
+        yuedou: _.inc(loserRefund - loserDirectDebit),
         yuedouFrozen: _.inc(-loserFrozen),
         yuedouSystem: _.inc(YUEDOU_SYSTEM)
       }
