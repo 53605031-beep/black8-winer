@@ -213,7 +213,8 @@ function _assertCloseWindow(match, actorOpenid) {
 
   if (match.status === "playing") {
     const startedAt = _toMillis(match.startedAt);
-    if (startedAt && Date.now() - startedAt <= 6 * 60 * 60 * 1000) {
+    if (!startedAt) throw new Error("缺少比赛开始时间，不能强制关闭");
+    if (Date.now() - startedAt <= 6 * 60 * 60 * 1000) {
       throw new Error("比赛开始未超过6小时，不能强制关闭");
     }
   }
