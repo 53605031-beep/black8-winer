@@ -455,60 +455,26 @@ async function _settleMatch(matchId, match, participants) {
  * - 进行中（超时）：发起人或参与者可关，双方冻结约豆解冻
  */
 async function closeMatch(matchId, closerOpenid) {
-  const db = DB();
-  const openid = getOpenid() || closerOpenid;
-  const record = await db.collection("matches").doc(matchId).get();
-  const match = record.data;
-
-  if (!match) throw new Error("球局不存在");
-  if (!["recruiting", "playing"].includes(match.status)) throw new Error("当前状态不可关闭");
-
-  // 权限检查：只有发起人或参与者能关闭
-  const isHost = match.hostOpenid === openid;
-  const isParticipant = (match.participants || []).some((p) => p.openid === openid);
-  if (!isHost && !isParticipant) throw new Error("你无权关闭此球局");
-
-  // 招募中（过期）：只检查发起人权限
-  if (match.status === "recruiting") {
-    if (!isHost) throw new Error("仅发起人可关闭招募中的球局");
-  }
-
-  // 进行中（超时）：冻结约豆解冻
-  if (match.status === "playing") {
-    const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
-    for (const uid of allOpenids) {
-      try {
-        const userRec = await db.collection("yueqiu8_users").where({ openid: uid }).get();
-        const user = userRec.data[0];
-        const frozen = user?.yuedouFrozen ?? 0;
-        if (frozen > 0) {
-          await db.collection("yueqiu8_users").where({ openid: uid }).update({
-            data: {
-              yuedou: db.command.inc(frozen),
-              yuedouFrozen: db.command.inc(-frozen)
-            }
-          });
-        }
-      } catch (e) {
-        console.error(`closeMatch 解冻约豆失败 uid=${uid}`, e);
-      }
-    }
-  }
-
-  await db.collection("matches").doc(matchId).update({
-    data: { status: "cancelled", closedAt: db.serverDate(), closedBy: openid }
+  const res = await wx.cloud.callFunction({
+    name: "matchService",
+    data: { action: "close", matchId, closerOpenid }
   });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "关闭失败");
+  return out;
+}
 
-  const noticeType = match.status === "recruiting" ? "match_canceled" : "match_closed";
-  await addNotice({
-    type: noticeType,
-    targetOpenid: match.hostOpenid,
-    matchId,
-    content: match.status === "recruiting"
-      ? `你发起的「${match.venueName}」球局已关闭`
-      : `「${match.venueName}」球局因超时被关闭，冻结约豆已解冻`,
-    createdAt: db.serverDate()
+/**
+ * 商家取消本球房下的异常球局，统一走云函数退回本局冻结约豆。
+ */
+async function cancelMatchByVenueOwner(matchId) {
+  const res = await wx.cloud.callFunction({
+    name: "matchService",
+    data: { action: "cancelByVenueOwner", matchId }
   });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "取消失败");
+  return out;
 }
 
 /**
@@ -580,12 +546,15 @@ async function getCurrentUser() {
     });
     ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
   } else {
-    // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
+    // 老用户迁移：只补缺失字段，不能把真实的 0 余额当成“未初始化”
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
-    if (needsFix) {
+    const moneyPatch = {};
+    if (u.yuedou == null) moneyPatch.yuedou = YUEDOU_INITIAL;
+    if (u.yuedouFrozen == null) moneyPatch.yuedouFrozen = 0;
+    if (u.yuedouSystem == null) moneyPatch.yuedouSystem = 0;
+    if (Object.keys(moneyPatch).length > 0) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: moneyPatch
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
@@ -653,70 +622,13 @@ async function updateUserProfile(profile) {
  * @returns {Promise<{code: string, remaining: number, totalClaimed: number}>}
  */
 async function claimDailyBonus() {
-  const openid = getOpenid();
-  if (!openid) throw new Error("未登录");
-
-  const today = _todayString();
-  const db = DB();
-
-  // 1. 找到或创建今日资金池记录
-  let poolRecord;
-  try {
-    poolRecord = await db.collection("daily_pools").doc(today).get();
-  } catch (e) {
-    poolRecord = null;
-  }
-
-  if (!poolRecord || !poolRecord.data) {
-    // 今日池子还不存在，创建它
-    await db.collection("daily_pools").add({
-      data: {
-        _id: today,
-        totalPool: YUEDOU_DAILY_POOL,
-        remaining: YUEDOU_DAILY_POOL,
-        totalClaimed: 0,
-        claimants: [],
-        createdAt: db.serverDate()
-      }
-    });
-    poolRecord = { data: { _id: today, totalPool: YUEDOU_DAILY_POOL, remaining: YUEDOU_DAILY_POOL, totalClaimed: 0, claimants: [] } };
-  }
-
-  const pool = poolRecord.data;
-
-  // 2. 已在 claimants 中，今天领过了
-  if ((pool.claimants || []).includes(openid)) {
-    return { code: "already_claimed", remaining: pool.remaining, totalClaimed: pool.totalClaimed };
-  }
-
-  // 3. 池子空了
-  if ((pool.remaining || 0) < YUEDOU_DAILY_BONUS) {
-    return { code: "pool_empty", remaining: 0, totalClaimed: pool.totalClaimed };
-  }
-
-  // 4. 发放约豆
-  await db.collection("yueqiu8_users").where({ openid }).update({
-    data: { yuedou: db.command.inc(YUEDOU_DAILY_BONUS) }
+  const res = await wx.cloud.callFunction({
+    name: "economyService",
+    data: { action: "claimDailyBonus" }
   });
-
-  // 5. 更新池子：remaining 减少，claimants 加入当前用户
-  await db.collection("daily_pools").doc(today).update({
-    data: {
-      remaining: db.command.inc(-YUEDOU_DAILY_BONUS),
-      totalClaimed: db.command.inc(YUEDOU_DAILY_BONUS),
-      claimants: db.command.push(openid)
-    }
-  });
-
-  // 6. 发一条通知
-  await addNotice({
-    type: "daily_bonus",
-    targetOpenid: openid,
-    content: `每日礼包到账 +${YUEDOU_DAILY_BONUS} 约豆，今日资金池剩余 ${pool.remaining - YUEDOU_DAILY_BONUS} 约豆`,
-    createdAt: db.serverDate()
-  });
-
-  return { code: "ok", remaining: pool.remaining - YUEDOU_DAILY_BONUS, totalClaimed: pool.totalClaimed + YUEDOU_DAILY_BONUS };
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "领取失败");
+  return out;
 }
 
 /**
@@ -1462,108 +1374,13 @@ async function getGoodsById(goodsId) {
  * @param {object} address  收货地址（虚拟商品可传 null）
  */
 async function redeemGoods(goodsId, address = null) {
-  const openid = getOpenid();
-  const db = DB();
-
-  // 1. 校验商品
-  const goods = await getGoodsById(goodsId);
-  if (!goods) throw new Error("商品不存在");
-  if (goods.status !== "active") throw new Error("商品已下架");
-  if (goods.stock <= 0) throw new Error("库存不足");
-
-  const price = goods.price;
-  const currencyType = goods.currencyType || "score";
-  const currencyName = currencyType === "yuedou" ? "约豆" : "积分";
-
-  // 2. 如果是球房专属商品，检查用户是否有权限（参与过该球房的比赛）
-  if (goods.venueId) {
-    const { data: accessData } = await db.collection("venue_access")
-      .where({ userId: openid, venueId: goods.venueId })
-      .get();
-    if (!accessData || accessData.length === 0) {
-      throw new Error("只有参与过该球房比赛的球友才能兑换此福利");
-    }
-  }
-
-  // 3. 校验用户余额
-  const user = await getCurrentUser();
-  const userBalance = currencyType === "yuedou" ? (user.yuedou || 0) : (user.score || 0);
-  if (userBalance < price) {
-    throw new Error(`${currencyName}不足，需要 ${price} ${currencyName}，你只有 ${userBalance} ${currencyName}`);
-  }
-
-  // 4. 每日兑换次数限制（每人每天最多兑换 3 次）
-  const today = _todayString();
-  const todayStart = new Date(today + "T00:00:00").getTime();
-  const { total } = await db.collection("mall_redemptions")
-    .where({
-      openid,
-      createdAt: db.command.gte(new Date(todayStart))
-    })
-    .count();
-  if (total >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
-
-  // 5. 原子操作：扣款 + 扣库存 + 创建兑换记录 + 写约豆记录
-  await db.runTransaction(async (transaction) => {
-    const userCheck = await transaction.get(db.collection("yueqiu8_users").where({ openid }));
-    const u = userCheck.data[0];
-    const balance = currencyType === "yuedou" ? (u.yuedou || 0) : (u.score || 0);
-    if (!u || balance < price) throw new Error(`${currencyName}不足`);
-
-    const goodsCheck = await transaction.get(db.collection("mall_goods").doc(goodsId));
-    const g = goodsCheck.data;
-    if (!g || g.stock <= 0) throw new Error("库存不足");
-
-    // 扣款
-    if (currencyType === "yuedou") {
-      transaction.update(db.collection("yueqiu8_users").where({ openid }), {
-        data: { yuedou: db.command.inc(-price) }
-      });
-    } else {
-      transaction.update(db.collection("yueqiu8_users").where({ openid }), {
-        data: { score: db.command.inc(-price) }
-      });
-    }
-
-    // 扣库存
-    transaction.update(db.collection("mall_goods").doc(goodsId), {
-      data: { stock: db.command.inc(-1), redeemedCount: db.command.inc(1) }
-    });
-
-    // 创建兑换记录
-    transaction.add(db.collection("mall_redemptions"), {
-      data: {
-        openid,
-        nickname: u.nickname || "球友",
-        goodsId,
-        goodsName: g.name,
-        goodsImage: g.image || "",
-        price,
-        currencyType,
-        category: g.category || "physical",
-        venueId: g.venueId || null,
-        address,
-        status: g.category === "virtual" ? "completed" : "pending",
-        createdAt: db.serverDate()
-      }
-    });
-
-    // 写约豆记录（如果是约豆商品）
-    if (currencyType === "yuedou") {
-      transaction.add(db.collection("score_records"), {
-        data: {
-          userId: openid,
-          type: "exchange",
-          amount: -price,
-          venueId: g.venueId || null,
-          matchId: null,
-          createdAt: db.serverDate()
-        }
-      });
-    }
+  const res = await wx.cloud.callFunction({
+    name: "economyService",
+    data: { action: "redeemGoods", goodsId, address }
   });
-
-  return { success: true, message: "兑换成功", currencyType };
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "兑换失败");
+  return { success: true, message: "兑换成功", currencyType: out.currencyType };
 }
 
 /**
@@ -1706,6 +1523,7 @@ module.exports = {
   // matches
   getMyActiveMatches,
   closeMatch,
+  cancelMatchByVenueOwner,
   getMatches,
   getMatchesByVenue,
   getMatchById,
