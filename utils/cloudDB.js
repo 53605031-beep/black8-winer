@@ -626,21 +626,23 @@ async function claimDailyBonus() {
   const today = _todayString();
   const db = DB();
 
+  const initialPool = {
+    totalPool: YUEDOU_DAILY_POOL,
+    remaining: YUEDOU_DAILY_POOL,
+    totalClaimed: 0,
+    claimants: [],
+    createdAt: db.serverDate()
+  };
+
   // 先保证今日资金池存在；真正的领取判断放进事务，避免重复发放。
   try {
-    await db.collection("daily_pools").doc(today).get();
+    const poolRecord = await db.collection("daily_pools").doc(today).get();
+    if (!poolRecord || !poolRecord.data) {
+      await db.collection("daily_pools").doc(today).set({ data: initialPool });
+    }
   } catch (e) {
     try {
-      await db.collection("daily_pools").add({
-        data: {
-          _id: today,
-          totalPool: YUEDOU_DAILY_POOL,
-          remaining: YUEDOU_DAILY_POOL,
-          totalClaimed: 0,
-          claimants: [],
-          createdAt: db.serverDate()
-        }
-      });
+      await db.collection("daily_pools").doc(today).set({ data: initialPool });
     } catch (_) {
       // 可能是另一个并发请求刚创建了今天的池子，继续进事务重读即可。
     }

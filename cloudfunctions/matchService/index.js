@@ -432,46 +432,71 @@ async function doSubmitResult(openid, matchId, choice) {
   const validChoices = ["win", "lose"];
   if (!validChoices.includes(choice)) throw new Error("无效的选择");
 
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
-  if (match.status !== "playing") throw new Error("当前状态不能选择结果");
-  if ((match.participants || []).length !== 2) throw new Error("仅支持双方满员后结算");
+  let outcome = { code: "ok", bothSelected: false };
+  let shouldSettle = false;
+  let settleParticipants = null;
+  let settleMatch = null;
 
-  const pIdx = (match.participants || []).findIndex((p) => p.openid === openid);
-  if (pIdx < 0) throw new Error("你不在此球局中");
+  await db.runTransaction(async (transaction) => {
+    outcome = { code: "ok", bothSelected: false };
+    shouldSettle = false;
+    settleParticipants = null;
+    settleMatch = null;
 
-  const updated = (match.participants || []).map((p) => {
-    if (p.openid === openid) return { ...p, resultChoice: choice };
-    return p;
-  });
+    const matchRes = await transaction.get(db.collection("matches").doc(matchId));
+    const match = matchRes.data;
+    if (!match) throw new Error("球局不存在");
+    if (match.status !== "playing") throw new Error("当前状态不能选择结果");
+    if ((match.participants || []).length !== 2) throw new Error("仅支持双方满员后结算");
 
-  await db.collection("matches").doc(matchId).update({
-    data: { participants: updated }
-  });
+    const participants = match.participants || [];
+    const pIdx = participants.findIndex((p) => p.openid === openid);
+    if (pIdx < 0) throw new Error("你不在此球局中");
 
-  const bothSelected = updated.every((p) => p.resultChoice != null);
-  if (bothSelected) {
+    const updated = participants.map((p) => {
+      if (p.openid === openid) return { ...p, resultChoice: choice };
+      return p;
+    });
+    const bothSelected = updated.every((p) => p.resultChoice != null);
+
+    if (!bothSelected) {
+      await transaction.update(db.collection("matches").doc(matchId), {
+        data: { participants: updated }
+      });
+      return;
+    }
+
     const choices = updated.map((p) => p.resultChoice);
-    const hostChoice  = choices[0];
+    const hostChoice = choices[0];
     const joinChoice = choices[1];
-    // 赢+输 才结算，其他情况（一样或冲突）都重置
     const isConsistent = (hostChoice === "win" && joinChoice === "lose") ||
                          (hostChoice === "lose" && joinChoice === "win");
-    if (isConsistent) {
-      await doSettleMatch(matchId, match, updated);
-      return { code: "ok", bothSelected: true };
-    } else {
-      await db.collection("matches").doc(matchId).update({
+
+    if (!isConsistent) {
+      await transaction.update(db.collection("matches").doc(matchId), {
         data: {
           participants: updated.map((p) => ({ ...p, resultChoice: null })),
           conflictAt: db.serverDate()
         }
       });
-      return { code: "conflict", bothSelected: false };
+      outcome = { code: "conflict", bothSelected: false };
+      return;
     }
+
+    await transaction.update(db.collection("matches").doc(matchId), {
+      data: { participants: updated }
+    });
+    shouldSettle = true;
+    settleParticipants = updated;
+    settleMatch = match;
+    outcome = { code: "ok", bothSelected: true };
+  });
+
+  if (shouldSettle) {
+    await doSettleMatch(matchId, settleMatch, settleParticipants);
   }
 
-  return { code: "ok", bothSelected: false };
+  return outcome;
 }
 
 // ── 关闭/取消球局 ───────────────────────────────────────────
