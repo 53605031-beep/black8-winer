@@ -18,7 +18,7 @@
 const cloud = require("wx-server-sdk");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
-const db = cloud.database();
+const db = cloud.database({ throwOnNotFound: false });
 const _ = db.command;
 
 // 约豆常量（与 utils/cloudDB.js 保持一致）
@@ -109,7 +109,7 @@ async function getUserIdsByOpenid(openids) {
 
 async function getUserInTransaction(transaction, userId) {
   if (!userId) return null;
-  const res = await transaction.get(db.collection("yueqiu8_users").doc(userId));
+  const res = await transaction.collection("yueqiu8_users").doc(userId).get();
   return res.data || null;
 }
 
@@ -128,7 +128,7 @@ async function refundFrozenParticipants(transaction, participants, userIdsByOpen
     const user = await getUserInTransaction(transaction, getParticipantUserId(participant, userIdsByOpenid));
     if (!user) continue;
     // 只退这场球局记录里的冻结额，避免误退用户其它球局的冻结约豆。
-    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
         yuedou: _.inc(frozen),
         yuedouFrozen: _.inc(-frozen),
@@ -284,7 +284,7 @@ async function doPublish(openid, matchData) {
 
     const nickname = user.nickname || "匿名用户";
     const avatar = user.avatarUrl || "";
-    const matchRes = await transaction.add(db.collection("matches"), {
+    const matchRes = await transaction.collection("matches").add({
       data: {
         ...matchData,
         hostOpenid: openid,
@@ -307,7 +307,7 @@ async function doPublish(openid, matchData) {
     });
     matchId = matchRes._id;
 
-    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN),
@@ -335,7 +335,7 @@ async function doJoin(openid, matchId) {
 
   await db.runTransaction(async (transaction) => {
     result = { code: "ok" };
-    const matchRes = await transaction.get(db.collection("matches").doc(matchId));
+    const matchRes = await transaction.collection("matches").doc(matchId).get();
     const match = matchRes.data;
     if (!match) throw new Error("球局不存在");
     if (match.status !== "recruiting") throw new Error("该球局已不在招募中，无法加入");
@@ -374,13 +374,13 @@ async function doJoin(openid, matchId) {
     };
     const updatedParticipants = participants.concat(addedParticipant);
 
-    await transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.collection("matches").doc(matchId).update({
       data: {
         participants: updatedParticipants,
         headcountJoined: updatedParticipants.length
       }
     });
-    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN),
@@ -411,14 +411,14 @@ async function doLeave(openid, matchId) {
   if (match.hostOpenid === openid) {
     const userIdsByOpenid = await getUserIdsByOpenid((match.participants || []).map((p) => p.openid));
     await db.runTransaction(async (transaction) => {
-      const latestRes = await transaction.get(db.collection("matches").doc(matchId));
+      const latestRes = await transaction.collection("matches").doc(matchId).get();
       const latest = latestRes.data;
       if (!latest) throw new Error("球局不存在");
       if (latest.status !== "recruiting") throw new Error("当前状态不能退出");
       if (latest.hostOpenid !== openid) throw new Error("仅发起人可撤销球局");
 
       await refundFrozenParticipants(transaction, latest.participants || [], userIdsByOpenid);
-      await transaction.update(db.collection("matches").doc(matchId), {
+      await transaction.collection("matches").doc(matchId).update({
         data: {
           status: "cancelled",
           cancelledAt: db.serverDate(),
@@ -441,7 +441,7 @@ async function doLeave(openid, matchId) {
   if (!existingUser || !existingUser._id) throw new Error("用户不存在，请先登录");
 
   await db.runTransaction(async (transaction) => {
-    const latestRes = await transaction.get(db.collection("matches").doc(matchId));
+    const latestRes = await transaction.collection("matches").doc(matchId).get();
     const latest = latestRes.data;
     if (!latest) throw new Error("球局不存在");
     if (latest.status !== "recruiting") throw new Error("当前状态不能退出");
@@ -453,7 +453,7 @@ async function doLeave(openid, matchId) {
     const frozenAmount = getFrozenAmount(current);
     const updatedParticipants = participants.filter((p) => p.openid !== openid);
 
-    await transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.collection("matches").doc(matchId).update({
       data: {
         participants: updatedParticipants,
         headcountJoined: updatedParticipants.length
@@ -463,7 +463,7 @@ async function doLeave(openid, matchId) {
     if (frozenAmount > 0) {
       const user = await getUserInTransaction(transaction, current.userDocId || existingUser._id);
       if (user) {
-        await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+        await transaction.collection("yueqiu8_users").doc(user._id).update({
           data: {
             yuedou: _.inc(frozenAmount),
             yuedouFrozen: _.inc(-frozenAmount),
@@ -472,7 +472,7 @@ async function doLeave(openid, matchId) {
         });
       }
     } else {
-      await transaction.update(db.collection("yueqiu8_users").doc(existingUser._id), {
+      await transaction.collection("yueqiu8_users").doc(existingUser._id).update({
         data: { activeMatchId: null }
       });
     }
@@ -529,7 +529,7 @@ async function doSubmitResult(openid, matchId, choice) {
     outcome = { code: "ok", bothSelected: false };
     settlement = null;
 
-    const matchRes = await transaction.get(db.collection("matches").doc(matchId));
+    const matchRes = await transaction.collection("matches").doc(matchId).get();
     const match = matchRes.data;
     if (!match) throw new Error("球局不存在");
     if (match.status !== "playing") throw new Error("当前状态不能选择结果");
@@ -546,7 +546,7 @@ async function doSubmitResult(openid, matchId, choice) {
     const bothSelected = updated.every((p) => p.resultChoice != null);
 
     if (!bothSelected) {
-      await transaction.update(db.collection("matches").doc(matchId), {
+      await transaction.collection("matches").doc(matchId).update({
         data: { participants: updated }
       });
       return;
@@ -559,7 +559,7 @@ async function doSubmitResult(openid, matchId, choice) {
                          (hostChoice === "lose" && joinChoice === "win");
 
     if (!isConsistent) {
-      await transaction.update(db.collection("matches").doc(matchId), {
+      await transaction.collection("matches").doc(matchId).update({
         data: {
           participants: updated.map((p) => ({ ...p, resultChoice: null })),
           conflictAt: db.serverDate()
@@ -583,14 +583,14 @@ async function doSubmitResult(openid, matchId, choice) {
     const loserUser = await getUserInTransaction(transaction, getParticipantUserId(loser, userIdsByOpenid));
     if (!winnerUser || !loserUser) throw new Error("用户数据不存在，不能结算");
 
-    await transaction.update(db.collection("yueqiu8_users").doc(winnerUser._id), {
+    await transaction.collection("yueqiu8_users").doc(winnerUser._id).update({
       data: {
         yuedou: _.inc(winnerFrozen + YUEDOU_WINNER),
         yuedouFrozen: _.inc(-winnerFrozen),
         activeMatchId: null
       }
     });
-    await transaction.update(db.collection("yueqiu8_users").doc(loserUser._id), {
+    await transaction.collection("yueqiu8_users").doc(loserUser._id).update({
       data: {
         yuedouFrozen: _.inc(-loserFrozen),
         yuedouSystem: _.inc(YUEDOU_SYSTEM),
@@ -603,7 +603,7 @@ async function doSubmitResult(openid, matchId, choice) {
       nickname: p.nickname,
       resultChoice: p.resultChoice
     }));
-    await transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.collection("matches").doc(matchId).update({
       data: {
         status: "settled",
         settledAt: db.serverDate(),
@@ -646,13 +646,13 @@ async function cancelMatchWithRefund(matchId, actorOpenid, extraData = {}) {
   const userIdsByOpenid = await getUserIdsByOpenid((initialMatch.participants || []).map((p) => p.openid));
 
   await db.runTransaction(async (transaction) => {
-    const latestRes = await transaction.get(db.collection("matches").doc(matchId));
+    const latestRes = await transaction.collection("matches").doc(matchId).get();
     const latest = latestRes.data;
     if (!latest) throw new Error("球局不存在");
     if (!["recruiting", "playing"].includes(latest.status)) throw new Error("当前状态不可关闭");
 
     await refundFrozenParticipants(transaction, latest.participants || [], userIdsByOpenid);
-    await transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.collection("matches").doc(matchId).update({
       data: {
         status: "cancelled",
         closedAt: db.serverDate(),
@@ -766,7 +766,7 @@ async function doSettleMatch(matchId, match, participants) {
 
   await db.runTransaction(async (transaction) => {
     settlement = null;
-    const latestRes = await transaction.get(db.collection("matches").doc(matchId));
+    const latestRes = await transaction.collection("matches").doc(matchId).get();
     const latest = latestRes.data;
     if (!latest) throw new Error("球局不存在");
     if (latest.status === "settled") return;
@@ -807,14 +807,14 @@ async function doSettleMatch(matchId, match, participants) {
     if (!winnerUser || !loserUser) throw new Error("用户数据不存在，不能结算");
 
     // 赢家拿回自己的冻结额，并获得输家冻结额中的420；输家只消耗已冻结的500。
-    await transaction.update(db.collection("yueqiu8_users").doc(winnerUser._id), {
+    await transaction.collection("yueqiu8_users").doc(winnerUser._id).update({
       data: {
         yuedou: _.inc(winnerFrozen + YUEDOU_WINNER),
         yuedouFrozen: _.inc(-winnerFrozen),
         activeMatchId: null
       }
     });
-    await transaction.update(db.collection("yueqiu8_users").doc(loserUser._id), {
+    await transaction.collection("yueqiu8_users").doc(loserUser._id).update({
       data: {
         yuedouFrozen: _.inc(-loserFrozen),
         yuedouSystem: _.inc(YUEDOU_SYSTEM),
@@ -827,7 +827,7 @@ async function doSettleMatch(matchId, match, participants) {
       nickname: p.nickname,
       resultChoice: p.resultChoice
     }));
-    await transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.collection("matches").doc(matchId).update({
       data: {
         status: "settled",
         settledAt: db.serverDate(),

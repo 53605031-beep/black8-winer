@@ -7,7 +7,7 @@ const cloud = require("wx-server-sdk");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
-const db = cloud.database();
+const db = cloud.database({ throwOnNotFound: false });
 const _ = db.command;
 
 const YUEDOU_DAILY_BONUS = 1000;
@@ -61,7 +61,7 @@ async function claimDailyBonus(openid) {
   let result = null;
   await db.runTransaction(async (transaction) => {
     result = null;
-    const poolRecord = await transaction.get(db.collection("daily_pools").doc(today));
+    const poolRecord = await transaction.collection("daily_pools").doc(today).get();
     const pool = poolRecord.data;
     if (!pool) throw new Error("今日资金池不存在");
 
@@ -83,13 +83,13 @@ async function claimDailyBonus(openid) {
       return;
     }
 
-    const latestUserRecord = await transaction.get(db.collection("yueqiu8_users").doc(user._id));
+    const latestUserRecord = await transaction.collection("yueqiu8_users").doc(user._id).get();
     if (!latestUserRecord.data) throw new Error("用户不存在");
 
-    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
     });
-    await transaction.update(db.collection("daily_pools").doc(today), {
+    await transaction.collection("daily_pools").doc(today).update({
       data: {
         remaining: _.inc(-YUEDOU_DAILY_BONUS),
         totalClaimed: _.inc(YUEDOU_DAILY_BONUS),
@@ -157,17 +157,17 @@ async function redeemGoods(openid, goodsId, address) {
   const counterKey = openid.replace(/[^A-Za-z0-9_]/g, "_");
 
   await db.runTransaction(async (transaction) => {
-    const poolRecord = await transaction.get(db.collection("daily_pools").doc(today));
+    const poolRecord = await transaction.collection("daily_pools").doc(today).get();
     const pool = poolRecord.data || {};
     const redemptionCounts = pool.redemptionCounts || {};
     const redeemedToday = Math.max(Number(redemptionCounts[counterKey]) || 0, total);
     if (redeemedToday >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
 
-    const latestUserRecord = await transaction.get(db.collection("yueqiu8_users").doc(user._id));
+    const latestUserRecord = await transaction.collection("yueqiu8_users").doc(user._id).get();
     const latestUser = latestUserRecord.data;
     if (!latestUser) throw new Error("用户不存在");
 
-    const latestGoodsRecord = await transaction.get(db.collection("mall_goods").doc(goodsId));
+    const latestGoodsRecord = await transaction.collection("mall_goods").doc(goodsId).get();
     const latestGoods = latestGoodsRecord.data;
     if (!latestGoods) throw new Error("商品不存在");
     if (latestGoods.status !== "active") throw new Error("商品已下架");
@@ -184,20 +184,20 @@ async function redeemGoods(openid, goodsId, address) {
     const userUpdate = latestCurrencyType === "yuedou"
       ? { yuedou: _.inc(-latestPrice) }
       : { score: _.inc(-latestPrice) };
-    await transaction.update(db.collection("yueqiu8_users").doc(user._id), { data: userUpdate });
-    await transaction.update(db.collection("mall_goods").doc(goodsId), {
+    await transaction.collection("yueqiu8_users").doc(user._id).update({ data: userUpdate });
+    await transaction.collection("mall_goods").doc(goodsId).update({
       data: {
         stock: _.inc(-1),
         redeemedCount: _.inc(1)
       }
     });
-    await transaction.update(db.collection("daily_pools").doc(today), {
+    await transaction.collection("daily_pools").doc(today).update({
       data: {
         [`redemptionCounts.${counterKey}`]: redeemedToday + 1,
         redemptionCounterUpdatedAt: db.serverDate()
       }
     });
-    await transaction.add(db.collection("mall_redemptions"), {
+    await transaction.collection("mall_redemptions").add({
       data: {
         openid,
         nickname: latestUser.nickname || "球友",
@@ -215,7 +215,7 @@ async function redeemGoods(openid, goodsId, address) {
     });
 
     if (latestCurrencyType === "yuedou") {
-      await transaction.add(db.collection("score_records"), {
+      await transaction.collection("score_records").add({
         data: {
           userId: openid,
           type: "exchange",
