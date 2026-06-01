@@ -153,8 +153,16 @@ async function redeemGoods(openid, goodsId, address) {
     })
     .count();
   if (total >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
+  await ensureDailyPool(today);
+  const counterKey = openid.replace(/[^A-Za-z0-9_]/g, "_");
 
   await db.runTransaction(async (transaction) => {
+    const poolRecord = await transaction.get(db.collection("daily_pools").doc(today));
+    const pool = poolRecord.data || {};
+    const redemptionCounts = pool.redemptionCounts || {};
+    const redeemedToday = Math.max(Number(redemptionCounts[counterKey]) || 0, total);
+    if (redeemedToday >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
+
     const latestUserRecord = await transaction.get(db.collection("yueqiu8_users").doc(user._id));
     const latestUser = latestUserRecord.data;
     if (!latestUser) throw new Error("用户不存在");
@@ -181,6 +189,12 @@ async function redeemGoods(openid, goodsId, address) {
       data: {
         stock: _.inc(-1),
         redeemedCount: _.inc(1)
+      }
+    });
+    await transaction.update(db.collection("daily_pools").doc(today), {
+      data: {
+        [`redemptionCounts.${counterKey}`]: redeemedToday + 1,
+        redemptionCounterUpdatedAt: db.serverDate()
       }
     });
     await transaction.add(db.collection("mall_redemptions"), {

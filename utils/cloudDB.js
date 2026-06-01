@@ -293,7 +293,8 @@ async function getMatchesByVenue(venueId) {
     .where({ venueId, status: "recruiting" })
     .orderBy("startAt", "asc")
     .get();
-  return data;
+  const now = Date.now();
+  return data.filter((m) => !m.startAt || m.startAt >= now);
 }
 
 /**

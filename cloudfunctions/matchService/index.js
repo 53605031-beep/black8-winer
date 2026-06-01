@@ -45,6 +45,48 @@ async function getMatch(matchId) {
   return res.data || null;
 }
 
+function isActiveStatus(status) {
+  return status === "recruiting" || status === "playing";
+}
+
+async function getActiveMatchesForOpenid(openid, excludeMatchId) {
+  const res = await db.collection("matches")
+    .where(_.or(
+      { hostOpenid: openid },
+      { participants: _.elemMatch({ openid }) }
+    ))
+    .get();
+  return (res.data || []).filter((match) => {
+    if (excludeMatchId && match._id === excludeMatchId) return false;
+    return isActiveStatus(match.status);
+  });
+}
+
+async function clearStaleActiveMatch(user) {
+  if (!user || !user.activeMatchId) return;
+  try {
+    const activeMatch = await getMatch(user.activeMatchId);
+    if (activeMatch && isActiveStatus(activeMatch.status)) {
+      throw new Error("你已有进行中或招募中的球局，请先处理后再继续");
+    }
+    await db.collection("yueqiu8_users").doc(user._id).update({
+      data: { activeMatchId: null }
+    });
+  } catch (e) {
+    if (e.message && e.message.includes("已有进行中")) throw e;
+    await db.collection("yueqiu8_users").doc(user._id).update({
+      data: { activeMatchId: null }
+    });
+  }
+}
+
+async function assertNoActiveMatch(openid, excludeMatchId) {
+  const activeMatches = await getActiveMatchesForOpenid(openid, excludeMatchId);
+  if (activeMatches.length > 0) {
+    throw new Error("你已有进行中或招募中的球局，请先处理后再继续");
+  }
+}
+
 function getFrozenAmount(participant) {
   if (!participant) return 0;
   const amount = participant.yuedouFrozen == null ? YUEDOU_FROZEN : Number(participant.yuedouFrozen);
@@ -89,7 +131,8 @@ async function refundFrozenParticipants(transaction, participants, userIdsByOpen
     await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
       data: {
         yuedou: _.inc(frozen),
-        yuedouFrozen: _.inc(-frozen)
+        yuedouFrozen: _.inc(-frozen),
+        activeMatchId: null
       }
     });
   }
@@ -227,11 +270,14 @@ async function doPublish(openid, matchData) {
 
   const existingUser = await getUserByOpenid(openid);
   if (!existingUser || !existingUser._id) throw new Error("用户不存在，请先登录");
+  await clearStaleActiveMatch(existingUser);
+  await assertNoActiveMatch(openid);
 
   let matchId = "";
   await db.runTransaction(async (transaction) => {
     const user = await getUserInTransaction(transaction, existingUser._id);
     if (!user) throw new Error("用户不存在，请先登录");
+    if (user.activeMatchId) throw new Error("你已有进行中或招募中的球局，请先处理后再继续");
 
     const yuedou = user.yuedou ?? YUEDOU_INITIAL;
     if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法发起约局");
@@ -264,7 +310,8 @@ async function doPublish(openid, matchData) {
     await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
-        yuedouFrozen: _.inc(YUEDOU_FROZEN)
+        yuedouFrozen: _.inc(YUEDOU_FROZEN),
+        activeMatchId: matchId
       }
     });
   });
@@ -283,6 +330,8 @@ async function doJoin(openid, matchId) {
   let venueId = null;
   const existingUser = await getUserByOpenid(openid);
   if (!existingUser || !existingUser._id) throw new Error("用户不存在，请先登录");
+  await clearStaleActiveMatch(existingUser);
+  await assertNoActiveMatch(openid, matchId);
 
   await db.runTransaction(async (transaction) => {
     result = { code: "ok" };
@@ -290,6 +339,9 @@ async function doJoin(openid, matchId) {
     const match = matchRes.data;
     if (!match) throw new Error("球局不存在");
     if (match.status !== "recruiting") throw new Error("该球局已不在招募中，无法加入");
+    if (match.startAt && Number(match.startAt) < Date.now()) {
+      throw new Error("该球局开赛时间已过，无法加入");
+    }
 
     const participants = match.participants || [];
     const headcountTarget = match.headcountTarget || 2;
@@ -303,6 +355,9 @@ async function doJoin(openid, matchId) {
 
     const user = await getUserInTransaction(transaction, existingUser._id);
     if (!user) throw new Error("用户不存在，请先登录");
+    if (user.activeMatchId && user.activeMatchId !== matchId) {
+      throw new Error("你已有进行中或招募中的球局，请先处理后再继续");
+    }
     const yuedou = user.yuedou ?? YUEDOU_INITIAL;
     if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法加入约局");
 
@@ -328,7 +383,8 @@ async function doJoin(openid, matchId) {
     await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
-        yuedouFrozen: _.inc(YUEDOU_FROZEN)
+        yuedouFrozen: _.inc(YUEDOU_FROZEN),
+        activeMatchId: matchId
       }
     });
     venueId = match.venueId || null;
@@ -410,10 +466,15 @@ async function doLeave(openid, matchId) {
         await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
           data: {
             yuedou: _.inc(frozenAmount),
-            yuedouFrozen: _.inc(-frozenAmount)
+            yuedouFrozen: _.inc(-frozenAmount),
+            activeMatchId: null
           }
         });
       }
+    } else {
+      await transaction.update(db.collection("yueqiu8_users").doc(existingUser._id), {
+        data: { activeMatchId: null }
+      });
     }
   });
 
@@ -519,7 +580,19 @@ async function doSubmitResult(openid, matchId, choice) {
   });
 
   if (shouldSettle) {
-    await doSettleMatch(matchId, settleMatch, settleParticipants);
+    try {
+      await doSettleMatch(matchId, settleMatch, settleParticipants);
+    } catch (e) {
+      // 结算失败时清空选择，避免双方卡在“已选择但未结算”的状态里。
+      await db.collection("matches").doc(matchId).update({
+        data: {
+          participants: (settleParticipants || []).map((p) => ({ ...p, resultChoice: null })),
+          settleErrorAt: db.serverDate(),
+          settleErrorMsg: e.message || String(e)
+        }
+      });
+      throw e;
+    }
   }
 
   return outcome;
@@ -697,13 +770,15 @@ async function doSettleMatch(matchId, match, participants) {
     await transaction.update(db.collection("yueqiu8_users").doc(winnerUser._id), {
       data: {
         yuedou: _.inc(winnerFrozen + YUEDOU_WINNER),
-        yuedouFrozen: _.inc(-winnerFrozen)
+        yuedouFrozen: _.inc(-winnerFrozen),
+        activeMatchId: null
       }
     });
     await transaction.update(db.collection("yueqiu8_users").doc(loserUser._id), {
       data: {
         yuedouFrozen: _.inc(-loserFrozen),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
+        yuedouSystem: _.inc(YUEDOU_SYSTEM),
+        activeMatchId: null
       }
     });
 
