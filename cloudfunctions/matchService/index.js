@@ -55,12 +55,27 @@ function clearParticipantFrozen(participants) {
   return (participants || []).map((p) => ({ ...p, yuedouFrozen: 0 }));
 }
 
-async function getUserInTransaction(transaction, openid) {
-  const res = await transaction.get(db.collection("yueqiu8_users").where({ openid }));
-  return (res.data && res.data[0]) || null;
+async function getUserIdsByOpenid(openids) {
+  const result = {};
+  const uniqueOpenids = Array.from(new Set((openids || []).filter(Boolean)));
+  for (const openid of uniqueOpenids) {
+    const user = await getUserByOpenid(openid);
+    if (user && user._id) result[openid] = user._id;
+  }
+  return result;
 }
 
-async function refundFrozenParticipants(transaction, participants) {
+async function getUserInTransaction(transaction, userId) {
+  if (!userId) return null;
+  const res = await transaction.get(db.collection("yueqiu8_users").doc(userId));
+  return res.data || null;
+}
+
+function getParticipantUserId(participant, userIdsByOpenid) {
+  return participant.userDocId || userIdsByOpenid[participant.openid];
+}
+
+async function refundFrozenParticipants(transaction, participants, userIdsByOpenid) {
   const refunded = new Set();
   for (const participant of participants || []) {
     const openid = participant.openid;
@@ -68,7 +83,7 @@ async function refundFrozenParticipants(transaction, participants) {
     if (!openid || frozen <= 0 || refunded.has(openid)) continue;
     refunded.add(openid);
 
-    const user = await getUserInTransaction(transaction, openid);
+    const user = await getUserInTransaction(transaction, getParticipantUserId(participant, userIdsByOpenid));
     if (!user) continue;
     // 只退这场球局记录里的冻结额，避免误退用户其它球局的冻结约豆。
     await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
@@ -210,9 +225,12 @@ async function doPublish(openid, matchData) {
   if (!matchData.startAt) throw new Error("请选择开局时间");
   if (!matchData.venueId) throw new Error("请选择球房");
 
+  const existingUser = await getUserByOpenid(openid);
+  if (!existingUser || !existingUser._id) throw new Error("用户不存在，请先登录");
+
   let matchId = "";
   await db.runTransaction(async (transaction) => {
-    const user = await getUserInTransaction(transaction, openid);
+    const user = await getUserInTransaction(transaction, existingUser._id);
     if (!user) throw new Error("用户不存在，请先登录");
 
     const yuedou = user.yuedou ?? YUEDOU_INITIAL;
@@ -227,6 +245,7 @@ async function doPublish(openid, matchData) {
         hostNickname: nickname,
         participants: [{
           openid,
+          userDocId: user._id,
           nickname,
           avatar,
           score: user.score || 0,
@@ -262,6 +281,8 @@ async function doPublish(openid, matchData) {
 async function doJoin(openid, matchId) {
   let result = { code: "ok" };
   let venueId = null;
+  const existingUser = await getUserByOpenid(openid);
+  if (!existingUser || !existingUser._id) throw new Error("用户不存在，请先登录");
 
   await db.runTransaction(async (transaction) => {
     result = { code: "ok" };
@@ -280,13 +301,14 @@ async function doJoin(openid, matchId) {
       throw new Error("该球局已满员");
     }
 
-    const user = await getUserInTransaction(transaction, openid);
+    const user = await getUserInTransaction(transaction, existingUser._id);
     if (!user) throw new Error("用户不存在，请先登录");
     const yuedou = user.yuedou ?? YUEDOU_INITIAL;
     if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法加入约局");
 
     const addedParticipant = {
       openid,
+      userDocId: user._id,
       nickname: user.nickname || "匿名用户",
       avatar: user.avatarUrl || "",
       score: user.score || 0,
@@ -331,6 +353,7 @@ async function doLeave(openid, matchId) {
   if (!me) throw new Error("你不在此球局中，无法退出");
 
   if (match.hostOpenid === openid) {
+    const userIdsByOpenid = await getUserIdsByOpenid((match.participants || []).map((p) => p.openid));
     await db.runTransaction(async (transaction) => {
       const latestRes = await transaction.get(db.collection("matches").doc(matchId));
       const latest = latestRes.data;
@@ -338,7 +361,7 @@ async function doLeave(openid, matchId) {
       if (latest.status !== "recruiting") throw new Error("当前状态不能退出");
       if (latest.hostOpenid !== openid) throw new Error("仅发起人可撤销球局");
 
-      await refundFrozenParticipants(transaction, latest.participants || []);
+      await refundFrozenParticipants(transaction, latest.participants || [], userIdsByOpenid);
       await transaction.update(db.collection("matches").doc(matchId), {
         data: {
           status: "cancelled",
@@ -357,6 +380,9 @@ async function doLeave(openid, matchId) {
     });
     return { code: "canceled_by_host" };
   }
+
+  const existingUser = await getUserByOpenid(openid);
+  if (!existingUser || !existingUser._id) throw new Error("用户不存在，请先登录");
 
   await db.runTransaction(async (transaction) => {
     const latestRes = await transaction.get(db.collection("matches").doc(matchId));
@@ -379,7 +405,7 @@ async function doLeave(openid, matchId) {
     });
 
     if (frozenAmount > 0) {
-      const user = await getUserInTransaction(transaction, openid);
+      const user = await getUserInTransaction(transaction, current.userDocId || existingUser._id);
       if (user) {
         await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
           data: {
@@ -502,6 +528,9 @@ async function doSubmitResult(openid, matchId, choice) {
 // ── 关闭/取消球局 ───────────────────────────────────────────
 async function cancelMatchWithRefund(matchId, actorOpenid, extraData = {}) {
   let matchForNotice = null;
+  const initialMatch = await getMatch(matchId);
+  if (!initialMatch) throw new Error("球局不存在");
+  const userIdsByOpenid = await getUserIdsByOpenid((initialMatch.participants || []).map((p) => p.openid));
 
   await db.runTransaction(async (transaction) => {
     const latestRes = await transaction.get(db.collection("matches").doc(matchId));
@@ -509,7 +538,7 @@ async function cancelMatchWithRefund(matchId, actorOpenid, extraData = {}) {
     if (!latest) throw new Error("球局不存在");
     if (!["recruiting", "playing"].includes(latest.status)) throw new Error("当前状态不可关闭");
 
-    await refundFrozenParticipants(transaction, latest.participants || []);
+    await refundFrozenParticipants(transaction, latest.participants || [], userIdsByOpenid);
     await transaction.update(db.collection("matches").doc(matchId), {
       data: {
         status: "cancelled",
@@ -620,6 +649,7 @@ async function doVerifyLocation(openid, matchId, userLat, userLon, maxDistanceKm
 // ── 结算 ───────────────────────────────────────────────────
 async function doSettleMatch(matchId, match, participants) {
   let settlement = null;
+  const userIdsByOpenid = await getUserIdsByOpenid((participants || match.participants || []).map((p) => p.openid));
 
   await db.runTransaction(async (transaction) => {
     settlement = null;
@@ -659,8 +689,8 @@ async function doSettleMatch(matchId, match, participants) {
       throw new Error("冻结约豆数据异常，不能自动结算");
     }
 
-    const winnerUser = await getUserInTransaction(transaction, winnerId);
-    const loserUser = await getUserInTransaction(transaction, loserId);
+    const winnerUser = await getUserInTransaction(transaction, getParticipantUserId(winner, userIdsByOpenid));
+    const loserUser = await getUserInTransaction(transaction, getParticipantUserId(loser, userIdsByOpenid));
     if (!winnerUser || !loserUser) throw new Error("用户数据不存在，不能结算");
 
     // 赢家拿回自己的冻结额，并获得输家冻结额中的420；输家只消耗已冻结的500。
