@@ -239,10 +239,10 @@ function buildSettlementPlan(match, participants) {
 }
 
 function canForceClosePlaying(match, nowMs) {
-  // 老数据可能没有 startedAt，保持原页面策略：允许异常关闭并退款。
-  if (!match.startedAt) return true;
+  // 进行中球局必须有可信的开始时间，避免被构造数据绕过 6 小时限制。
+  if (!match.startedAt) return false;
   const startedAtMs = new Date(match.startedAt).getTime();
-  if (!Number.isFinite(startedAtMs)) return true;
+  if (!Number.isFinite(startedAtMs)) return false;
   return nowMs - startedAtMs > PLAYING_CLOSE_AFTER_MS;
 }
 
