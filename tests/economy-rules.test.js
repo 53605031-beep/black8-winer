@@ -141,8 +141,13 @@ assert.strictEqual(
 );
 assert.strictEqual(
   canForceClosePlaying({}, now),
-  true,
-  "没有 startedAt 的老数据按页面原策略允许关闭"
+  false,
+  "没有 startedAt 的进行中球局不能强制关闭，避免绕过 6 小时限制"
+);
+assert.strictEqual(
+  canForceClosePlaying({ startedAt: "invalid-date" }, now),
+  false,
+  "startedAt 无法解析时不能强制关闭"
 );
 
 console.log("economy rules tests passed");
