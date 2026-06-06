@@ -166,6 +166,111 @@ function _monthStartStr() {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+function positiveAmount(value, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : fallback;
+}
+
+function toMillis(value) {
+  if (!value) return 0;
+  if (typeof value === "number") return value;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  return new Date(value).getTime() || 0;
+}
+
+function dedupeParticipants(participants = []) {
+  const seen = new Set();
+  const result = [];
+  for (const p of participants) {
+    if (!p || !p.openid || seen.has(p.openid)) continue;
+    seen.add(p.openid);
+    result.push(p);
+  }
+  return result;
+}
+
+function uniqueOpenids(openids = []) {
+  return Array.from(new Set(openids.filter(Boolean)));
+}
+
+function getFrozenAmount(participant) {
+  return positiveAmount(participant?.yuedouFrozen, YUEDOU_FROZEN);
+}
+
+async function getRequiredUser(openid) {
+  const user = await getUserByOpenid(openid);
+  if (!user) throw new Error("用户不存在，请先登录");
+  return user;
+}
+
+async function getUserMap(openids) {
+  const map = {};
+  for (const openid of uniqueOpenids(openids)) {
+    map[openid] = await getRequiredUser(openid);
+  }
+  return map;
+}
+
+async function getUserInTransaction(transaction, userDoc) {
+  const res = await transaction.collection("yueqiu8_users").doc(userDoc._id).get();
+  const user = res.data;
+  if (!user) throw new Error("用户不存在，请先登录");
+  return user;
+}
+
+async function updateUserByOpenid(transaction, userMap, openid, data) {
+  const userDoc = userMap[openid];
+  if (!userDoc) throw new Error("用户不存在，请先登录");
+  await transaction.collection("yueqiu8_users").doc(userDoc._id).update({ data });
+}
+
+async function refundFrozenInTransaction(transaction, userMap, participants) {
+  const unique = dedupeParticipants(participants);
+  for (const p of unique) {
+    const frozen = positiveAmount(p.yuedouFrozen, 0);
+    if (frozen <= 0) continue;
+    await updateUserByOpenid(transaction, userMap, p.openid, {
+      yuedou: _.inc(frozen),
+      yuedouFrozen: _.inc(-frozen)
+    });
+  }
+  return unique.map((p) => ({ ...p, yuedouFrozen: 0 }));
+}
+
+function buildSettlement(match, participants) {
+  const unique = dedupeParticipants(participants);
+  if (unique.length !== (match.headcountTarget || 2)) {
+    throw new Error("参与人数不足，不能结算");
+  }
+
+  const host = unique.find((p) => p.openid === match.hostOpenid);
+  const opponent = unique.find((p) => p.openid !== match.hostOpenid);
+  if (!host || !opponent) throw new Error("结算参与人异常");
+
+  let winner = null;
+  let loser = null;
+  if (host.resultChoice === "win" && opponent.resultChoice === "lose") {
+    winner = host;
+    loser = opponent;
+  } else if (host.resultChoice === "lose" && opponent.resultChoice === "win") {
+    winner = opponent;
+    loser = host;
+  }
+
+  return {
+    unique,
+    winner,
+    loser,
+    consistent: !!winner && !!loser,
+    finalParticipants: unique.map((p) => ({
+      openid: p.openid,
+      nickname: p.nickname,
+      resultChoice: p.resultChoice
+    }))
+  };
+}
+
 // ── 发布球局 ───────────────────────────────────────────────
 async function doPublish(openid, matchData) {
   const headcountTarget = matchData.headcountTarget || 2;
@@ -173,191 +278,172 @@ async function doPublish(openid, matchData) {
   if (!matchData.startAt) throw new Error("请选择开局时间");
   if (!matchData.venueId) throw new Error("请选择球房");
 
-  const user = await getUserByOpenid(openid);
-  if (!user) throw new Error("用户不存在，请先登录");
-  const nickname = user.nickname || "匿名用户";
-  const avatar    = user.avatarUrl || "";
-  const yuedou    = user.yuedou ?? YUEDOU_INITIAL;
+  let matchId = null;
+  const userDoc = await getRequiredUser(openid);
+  await db.runTransaction(async (transaction) => {
+    const user = await getUserInTransaction(transaction, userDoc);
+    const yuedou = user.yuedou ?? YUEDOU_INITIAL;
+    if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法发起约局");
 
-  if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法发起约局");
+    const nickname = user.nickname || "匿名用户";
+    const matchRes = await transaction.collection("matches").add({
+      data: {
+        ...matchData,
+        hostOpenid: openid,
+        hostNickname: nickname,
+        participants: [{
+          openid,
+          nickname,
+          avatar: user.avatarUrl || "",
+          score: user.score || 0,
+          yuedouFrozen: YUEDOU_FROZEN,
+          resultChoice: null,
+          locationVerified: false,
+          locationVerifiedAt: null
+        }],
+        headcountJoined: 1,
+        status: "recruiting",
+        createdAt: db.serverDate()
+      }
+    });
+    matchId = matchRes._id;
 
-  // 1. 创建球局
-  const matchRes = await db.collection("matches").add({
-    data: {
-      ...matchData,
-      hostOpenid: openid,
-      hostNickname: nickname,
-      participants: [{
-        openid,
-        nickname,
-        avatar,
-        score: user.score || 0,
-        yuedouFrozen: YUEDOU_FROZEN,
-        resultChoice: null,
-        locationVerified: false,
-        locationVerifiedAt: null
-      }],
-      headcountJoined: 1,
-      status: "recruiting",
-      createdAt: db.serverDate()
-    }
-  });
-
-  // 2. 记录球房访问
-  if (matchData.venueId) {
-    await recordVenueAccess(openid, matchData.venueId, matchRes._id);
-  }
-
-  // 3. 冻约豆，失败则删除球局（补偿）
-  try {
-    await db.collection("yueqiu8_users").where({ openid }).update({
+    await transaction.collection("yueqiu8_users").doc(userDoc._id).update({
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN)
       }
     });
-  } catch (e) {
-    await db.collection("matches").doc(matchRes._id).remove();
-    throw new Error("冻结约豆失败，约局未发起");
+  });
+
+  if (matchData.venueId && matchId) {
+    await recordVenueAccess(openid, matchData.venueId, matchId);
   }
 
-  return { code: "ok" };
+  return { code: "ok", matchId };
 }
 
 // ── 加入球局 ───────────────────────────────────────────────
 async function doJoin(openid, matchId) {
-  const user = await getUserByOpenid(openid);
-  if (!user) throw new Error("用户不存在，请先登录");
-  const nickname = user.nickname || "匿名用户";
-  const score    = user.score || 0;
-  const yuedou    = user.yuedou ?? YUEDOU_INITIAL;
+  let result = { code: "ok" };
+  let venueId = null;
+  const userDoc = await getRequiredUser(openid);
 
-  if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法加入约局");
+  await db.runTransaction(async (transaction) => {
+    const user = await getUserInTransaction(transaction, userDoc);
+    const yuedou = user.yuedou ?? YUEDOU_INITIAL;
+    if (yuedou < YUEDOU_FROZEN) throw new Error("约豆不足500，无法加入约局");
 
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
-  if (match.status !== "recruiting") throw new Error("该球局已不在招募中，无法加入");
-  if ((match.headcountJoined ?? 0) >= (match.headcountTarget || 2)) {
-    throw new Error("该球局已满员");
-  }
+    const matchRecord = await transaction.collection("matches").doc(matchId).get();
+    const match = matchRecord.data;
+    if (!match) throw new Error("球局不存在");
+    if (match.status !== "recruiting") throw new Error("该球局已不在招募中，无法加入");
 
-  const participants = match.participants || [];
-  if (participants.some((p) => p.openid === openid)) {
-    return { code: "already_joined" };
-  }
-
-  const addedParticipant = {
-    openid,
-    nickname,
-    avatar: user.avatarUrl || "",
-    score,
-    yuedouFrozen: YUEDOU_FROZEN,
-    resultChoice: null,
-    locationVerified: false,
-    locationVerifiedAt: null
-  };
-
-  // 1. 加入球局
-  await db.collection("matches").doc(matchId).update({
-    data: {
-      participants: _.push(addedParticipant),
-      headcountJoined: _.inc(1)
+    const participants = dedupeParticipants(match.participants || []);
+    if (participants.some((p) => p.openid === openid)) {
+      result = { code: "already_joined" };
+      return;
     }
-  });
+    if (participants.length >= (match.headcountTarget || 2)) {
+      throw new Error("该球局已满员");
+    }
 
-  // 2. 记录球房访问
-  if (match.venueId) {
-    await recordVenueAccess(openid, match.venueId, matchId);
-  }
+    const addedParticipant = {
+      openid,
+      nickname: user.nickname || "匿名用户",
+      avatar: user.avatarUrl || "",
+      score: user.score || 0,
+      yuedouFrozen: YUEDOU_FROZEN,
+      resultChoice: null,
+      locationVerified: false,
+      locationVerifiedAt: null
+    };
+    const updatedParticipants = participants.concat(addedParticipant);
+    venueId = match.venueId || null;
 
-  // 3. 冻约豆，失败则退出（补偿）
-  try {
-    await db.collection("yueqiu8_users").where({ openid }).update({
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        participants: updatedParticipants,
+        headcountJoined: updatedParticipants.length
+      }
+    });
+    await transaction.collection("yueqiu8_users").doc(userDoc._id).update({
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN)
       }
     });
-  } catch (e) {
-    await db.collection("matches").doc(matchId).update({
-      data: {
-        participants: _.pull({ openid }),
-        headcountJoined: _.inc(-1)
-      }
-    });
-    throw new Error("冻结约豆失败，未成功加入");
+  });
+
+  if (result.code === "ok" && venueId) {
+    await recordVenueAccess(openid, venueId, matchId);
   }
 
-  return { code: "ok" };
+  return result;
 }
 
 // ── 退出球局 ───────────────────────────────────────────────
 async function doLeave(openid, matchId) {
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
+  let result = { code: "left" };
+  const preMatch = await getMatch(matchId);
+  if (!preMatch) throw new Error("球局不存在");
+  const userMap = await getUserMap(dedupeParticipants(preMatch.participants || []).map((p) => p.openid));
 
-  const me = (match.participants || []).find((p) => p.openid === openid);
-  if (!me) throw new Error("你不在此球局中，无法退出");
+  await db.runTransaction(async (transaction) => {
+    const matchRecord = await transaction.collection("matches").doc(matchId).get();
+    const match = matchRecord.data;
+    if (!match) throw new Error("球局不存在");
 
-  const frozenAmount = me.yuedouFrozen ?? 0;
+    const participants = dedupeParticipants(match.participants || []);
+    const me = participants.find((p) => p.openid === openid);
+    if (!me) throw new Error("你不在此球局中，无法退出");
 
-  // 安全校验：非发起人在进行中/已结算状态不能退出
-  if (match.hostOpenid !== openid) {
-    if (["playing", "settled", "finished"].includes(match.status)) {
-      throw new Error("比赛已开始或已结束，普通参与者不能退出");
+    if (match.status !== "recruiting") {
+      throw new Error("比赛已开始或已结束，不能退出");
     }
-  }
 
-  if (match.hostOpenid === openid) {
-    // 发起人：删除球局，退款所有人
-    await db.collection("matches").doc(matchId).remove();
-
-    for (const p of match.participants || []) {
-      if ((p.yuedouFrozen ?? 0) > 0) {
-        try {
-          await db.collection("yueqiu8_users").where({ openid: p.openid }).update({
-            data: {
-              yuedou: _.inc(p.yuedouFrozen),
-              yuedouFrozen: _.inc(-p.yuedouFrozen)
-            }
-          });
-        } catch (e) {
-          console.error(`退款失败 ${p.openid}`, e);
+    if (match.hostOpenid === openid) {
+      const refundedParticipants = await refundFrozenInTransaction(transaction, userMap, participants);
+      await transaction.collection("matches").doc(matchId).update({
+        data: {
+          status: "cancelled",
+          participants: refundedParticipants,
+          headcountJoined: refundedParticipants.length,
+          closedAt: db.serverDate(),
+          closedBy: openid
         }
-      }
+      });
+      result = { code: "canceled_by_host" };
+      return;
     }
 
+    const frozenAmount = positiveAmount(me.yuedouFrozen, 0);
+    const updatedParticipants = participants.filter((p) => p.openid !== openid);
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        participants: updatedParticipants,
+        headcountJoined: updatedParticipants.length
+      }
+    });
+
+    if (frozenAmount > 0) {
+      await updateUserByOpenid(transaction, userMap, openid, {
+        yuedou: _.inc(frozenAmount),
+        yuedouFrozen: _.inc(-frozenAmount)
+      });
+    }
+  });
+
+  if (result.code === "canceled_by_host") {
     await addNotice({
       type: "match_canceled",
       targetOpenid: openid,
       matchId,
-      content: `你发起的球局因你退出已被系统撤销`
+      content: "你发起的球局因你退出已被系统撤销"
     });
-    return { code: "canceled_by_host" };
   }
 
-  // 普通参与者：退出球局，再退款
-  await db.collection("matches").doc(matchId).update({
-    data: {
-      participants: _.pull({ openid }),
-      headcountJoined: _.inc(-1)
-    }
-  });
-
-  if (frozenAmount > 0) {
-    try {
-      await db.collection("yueqiu8_users").where({ openid }).update({
-        data: {
-          yuedou: _.inc(frozenAmount),
-          yuedouFrozen: _.inc(-frozenAmount)
-        }
-      });
-    } catch (e) {
-      console.error("退出退款失败（可手动补偿）", e);
-    }
-  }
-
-  return { code: "left" };
+  return result;
 }
 
 // ── 确认比赛开始 ───────────────────────────────────────────
@@ -367,14 +453,19 @@ async function doConfirm(openid, matchId) {
   if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
   if (match.status !== "recruiting") throw new Error("当前状态不可确认");
 
-  const allVerified = (match.participants || []).every((p) => p.locationVerified);
+  const participants = dedupeParticipants(match.participants || []);
+  if (participants.length < (match.headcountTarget || 2)) {
+    throw new Error("人数未满，不能开始比赛");
+  }
+
+  const allVerified = participants.every((p) => p.locationVerified);
   if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
 
   await db.collection("matches").doc(matchId).update({
     data: { status: "playing", startedAt: db.serverDate() }
   });
 
-  const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
+  const allOpenids = uniqueOpenids([match.hostOpenid, ...participants.map((p) => p.openid)]);
   for (const uid of allOpenids) {
     const isHost = uid === match.hostOpenid;
     await recordMatchParticipation(uid, matchId, isHost);
@@ -388,45 +479,110 @@ async function doSubmitResult(openid, matchId, choice) {
   const validChoices = ["win", "lose"];
   if (!validChoices.includes(choice)) throw new Error("无效的选择");
 
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
-  if (match.status !== "playing") throw new Error("当前状态不能选择结果");
+  let result = { code: "ok", bothSelected: false };
+  let noticePayloads = [];
+  const preMatch = await getMatch(matchId);
+  if (!preMatch) throw new Error("球局不存在");
+  const userMap = await getUserMap(dedupeParticipants(preMatch.participants || []).map((p) => p.openid));
 
-  const pIdx = (match.participants || []).findIndex((p) => p.openid === openid);
-  if (pIdx < 0) throw new Error("你不在此球局中");
+  await db.runTransaction(async (transaction) => {
+    const matchRecord = await transaction.collection("matches").doc(matchId).get();
+    const match = matchRecord.data;
+    if (!match) throw new Error("球局不存在");
+    if (match.status !== "playing") throw new Error("当前状态不能选择结果");
 
-  const updated = (match.participants || []).map((p) => {
-    if (p.openid === openid) return { ...p, resultChoice: choice };
-    return p;
-  });
+    const participants = dedupeParticipants(match.participants || []);
+    if (!participants.some((p) => p.openid === openid)) {
+      throw new Error("你不在此球局中");
+    }
 
-  await db.collection("matches").doc(matchId).update({
-    data: { participants: updated }
-  });
+    const updated = participants.map((p) => {
+      if (p.openid === openid) return { ...p, resultChoice: choice };
+      return p;
+    });
 
-  const bothSelected = updated.every((p) => p.resultChoice != null);
-  if (bothSelected) {
-    const choices = updated.map((p) => p.resultChoice);
-    const hostChoice  = choices[0];
-    const joinChoice = choices[1];
-    // 赢+输 才结算，其他情况（一样或冲突）都重置
-    const isConsistent = (hostChoice === "win" && joinChoice === "lose") ||
-                         (hostChoice === "lose" && joinChoice === "win");
-    if (isConsistent) {
-      await doSettleMatch(matchId, match, updated);
-      return { code: "ok", bothSelected: true };
-    } else {
-      await db.collection("matches").doc(matchId).update({
+    const bothSelected = updated.every((p) => p.resultChoice != null);
+    if (!bothSelected) {
+      await transaction.collection("matches").doc(matchId).update({ data: { participants: updated } });
+      result = { code: "ok", bothSelected: false };
+      return;
+    }
+
+    const settlement = buildSettlement(match, updated);
+    if (!settlement.consistent) {
+      await transaction.collection("matches").doc(matchId).update({
         data: {
           participants: updated.map((p) => ({ ...p, resultChoice: null })),
           conflictAt: db.serverDate()
         }
       });
-      return { code: "conflict", bothSelected: false };
+      result = { code: "conflict", bothSelected: false };
+      return;
     }
+
+    const winnerFrozen = getFrozenAmount(settlement.winner);
+    const loserFrozen = getFrozenAmount(settlement.loser);
+    const finalParticipants = updated.map((p) => ({ ...p, yuedouFrozen: 0 }));
+
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        status: "settled",
+        participants: finalParticipants,
+        finalParticipants: settlement.finalParticipants
+      }
+    });
+
+    await updateUserByOpenid(transaction, userMap, settlement.winner.openid, {
+      yuedou: _.inc(winnerFrozen + YUEDOU_WINNER),
+      yuedouFrozen: _.inc(-winnerFrozen),
+      yuedouSystem: _.inc(YUEDOU_SYSTEM)
+    });
+    await updateUserByOpenid(transaction, userMap, settlement.loser.openid, {
+      yuedouFrozen: _.inc(-loserFrozen)
+    });
+
+    const venueId = match.venueId || null;
+    await transaction.collection("score_records").add({
+      data: {
+        userId: settlement.winner.openid,
+        type: "match_win",
+        amount: YUEDOU_WINNER,
+        venueId,
+        matchId,
+        createdAt: db.serverDate()
+      }
+    });
+    await transaction.collection("score_records").add({
+      data: {
+        userId: settlement.loser.openid,
+        type: "match_lose",
+        amount: -YUEDOU_FROZEN,
+        venueId,
+        matchId,
+        createdAt: db.serverDate()
+      }
+    });
+
+    for (const uid of uniqueOpenids(updated.map((p) => p.openid))) {
+      await updateUserByOpenid(transaction, userMap, uid, {
+        score: _.inc(SCORE_COMPLETE_MATCH)
+      });
+    }
+
+    const winnerNick = settlement.winner.nickname || "某用户";
+    const loserNick = settlement.loser.nickname || "某用户";
+    noticePayloads = [
+      { type: "match_settled", targetOpenid: settlement.winner.openid, matchId, content: `🏆 你赢了「${loserNick}」！获得 ${YUEDOU_WINNER} 约豆` },
+      { type: "match_settled", targetOpenid: settlement.loser.openid, matchId, content: `😅 你输了「${winnerNick}」，冻结的 ${YUEDOU_FROZEN} 约豆已扣除` }
+    ];
+    result = { code: "ok", bothSelected: true };
+  });
+
+  for (const notice of noticePayloads) {
+    try { await addNotice(notice); } catch (e) { console.error("结算通知发送失败", e); }
   }
 
-  return { code: "ok", bothSelected: false };
+  return result;
 }
 
 // ── 位置校验 ───────────────────────────────────────────────
@@ -472,69 +628,140 @@ async function doVerifyLocation(openid, matchId, userLat, userLon, maxDistanceKm
 
 // ── 结算 ───────────────────────────────────────────────────
 async function doSettleMatch(matchId, match, participants) {
-  const choices = {};
-  participants.forEach((p) => { choices[p.openid] = p.resultChoice; });
+  const settlement = buildSettlement(match, participants);
+  if (!settlement.consistent) throw new Error("结果不一致，不能结算");
 
-  const hostChoice  = choices[match.hostOpenid] || "";
-  const openids     = participants.map((p) => p.openid);
-  const joinOpenid  = openids.find((o) => o !== match.hostOpenid);
-  const joinChoice  = choices[joinOpenid] || "";
-  const venueId     = match.venueId || null;
+  const winnerFrozen = getFrozenAmount(settlement.winner);
+  const loserFrozen = getFrozenAmount(settlement.loser);
+  const finalParticipants = dedupeParticipants(participants).map((p) => ({ ...p, yuedouFrozen: 0 }));
+  const userMap = await getUserMap(finalParticipants.map((p) => p.openid));
 
-  // 1. 标记为已结算
-  await db.collection("matches").doc(matchId).update({
-    data: {
-      status: "settled",
-      finalParticipants: participants.map((p) => ({
-        openid: p.openid,
-        nickname: p.nickname,
-        resultChoice: p.resultChoice
-      }))
-    }
+  await db.runTransaction(async (transaction) => {
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        status: "settled",
+        participants: finalParticipants,
+        finalParticipants: settlement.finalParticipants
+      }
+    });
+    await updateUserByOpenid(transaction, userMap, settlement.winner.openid, {
+      yuedou: _.inc(winnerFrozen + YUEDOU_WINNER),
+      yuedouFrozen: _.inc(-winnerFrozen),
+      yuedouSystem: _.inc(YUEDOU_SYSTEM)
+    });
+    await updateUserByOpenid(transaction, userMap, settlement.loser.openid, {
+      yuedouFrozen: _.inc(-loserFrozen)
+    });
   });
 
-  try {
-    let winnerId = null, loserId = null;
+  await addScoreRecord(settlement.winner.openid, "match_win", YUEDOU_WINNER, match.venueId || null, matchId);
+  await addScoreRecord(settlement.loser.openid, "match_lose", -YUEDOU_FROZEN, match.venueId || null, matchId);
 
-    if (hostChoice === "win" && joinChoice === "lose") {
-      winnerId = match.hostOpenid; loserId = joinOpenid;
-    } else if (hostChoice === "lose" && joinChoice === "win") {
-      winnerId = joinOpenid; loserId = match.hostOpenid;
-    } else {
-      // 不可能走到这里（已在 doSubmitResult 拦截），保守处理
-      return;
-    }
-
-    await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
-      data: {
-        yuedou: _.inc(YUEDOU_WINNER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
-      }
-    });
-    await db.collection("yueqiu8_users").where({ openid: loserId }).update({
-      data: {
-        yuedou: _.inc(YUEDOU_LOSER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
-      }
-    });
-
-    await addScoreRecord(winnerId, "match_win", 10, venueId, matchId);
-    await addScoreRecord(loserId, "match_lose", 0, venueId, matchId);
-
-    const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
-    const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
-    await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+10约豆，冻结约豆已解冻` });
-    await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，冻结约豆已解冻` });
-  } catch (e) {
-    console.error("约豆结算异常（需手动补偿）", e);
-  }
-
-  // 2. 完成比赛积分
-  for (const oid of openids) {
+  for (const oid of uniqueOpenids(finalParticipants.map((p) => p.openid))) {
     try { await recordMatchComplete(oid); } catch (_) {}
   }
+}
+
+// ── 强制关闭 / 商家取消 ──────────────────────────────────────
+async function doClose(openid, matchId) {
+  let targetOpenid = null;
+  let noticeContent = "";
+  const preMatch = await getMatch(matchId);
+  if (!preMatch) throw new Error("球局不存在");
+  const userMap = await getUserMap(dedupeParticipants(preMatch.participants || []).map((p) => p.openid));
+
+  await db.runTransaction(async (transaction) => {
+    const matchRecord = await transaction.collection("matches").doc(matchId).get();
+    const match = matchRecord.data;
+    if (!match) throw new Error("球局不存在");
+    if (!["recruiting", "playing"].includes(match.status)) throw new Error("当前状态不可关闭");
+
+    const participants = dedupeParticipants(match.participants || []);
+    const isHost = match.hostOpenid === openid;
+    const isParticipant = participants.some((p) => p.openid === openid);
+    if (!isHost && !isParticipant) throw new Error("你无权关闭此球局");
+
+    if (match.status === "recruiting" && !isHost) {
+      throw new Error("仅发起人可关闭招募中的球局");
+    }
+    if (match.status === "playing") {
+      const startedAt = toMillis(match.startedAt);
+      const sixHours = 6 * 60 * 60 * 1000;
+      if (!startedAt || Date.now() - startedAt < sixHours) {
+        throw new Error("比赛开始超过6小时后才能强制关闭");
+      }
+    }
+
+    const refundedParticipants = await refundFrozenInTransaction(transaction, userMap, participants);
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        status: "cancelled",
+        participants: refundedParticipants,
+        headcountJoined: refundedParticipants.length,
+        closedAt: db.serverDate(),
+        closedBy: openid
+      }
+    });
+
+    targetOpenid = match.hostOpenid;
+    noticeContent = match.status === "recruiting"
+      ? `你发起的「${match.venueName || "球局"}」已关闭，冻结约豆已退还`
+      : `「${match.venueName || "球局"}」因超时关闭，冻结约豆已退还`;
+  });
+
+  if (targetOpenid) {
+    await addNotice({ type: "match_closed", targetOpenid, matchId, content: noticeContent });
+  }
+  return { code: "closed" };
+}
+
+async function doCancelByVenueOwner(openid, matchId) {
+  let noticeTargets = [];
+  const preMatch = await getMatch(matchId);
+  if (!preMatch) throw new Error("球局不存在");
+  const userMap = await getUserMap(dedupeParticipants(preMatch.participants || []).map((p) => p.openid));
+
+  await db.runTransaction(async (transaction) => {
+    const matchRecord = await transaction.collection("matches").doc(matchId).get();
+    const match = matchRecord.data;
+    if (!match) throw new Error("球局不存在");
+    if (!["recruiting", "playing"].includes(match.status)) throw new Error("当前状态不可取消");
+
+    const venueRecord = await transaction.collection("venues").doc(match.venueId).get();
+    const venue = venueRecord.data;
+    if (!venue || venue.ownerOpenid !== openid) {
+      throw new Error("只有球房商家可取消本店球局");
+    }
+
+    const participants = dedupeParticipants(match.participants || []);
+    const refundedParticipants = await refundFrozenInTransaction(transaction, userMap, participants);
+    await transaction.collection("matches").doc(matchId).update({
+      data: {
+        status: "cancelled",
+        participants: refundedParticipants,
+        headcountJoined: refundedParticipants.length,
+        closedAt: db.serverDate(),
+        closedBy: openid,
+        closedByRole: "venue_owner"
+      }
+    });
+    noticeTargets = uniqueOpenids([match.hostOpenid, ...participants.map((p) => p.openid)]);
+  });
+
+  for (const targetOpenid of noticeTargets) {
+    try {
+      await addNotice({
+        type: "match_canceled",
+        targetOpenid,
+        matchId,
+        content: "商家已取消这场球局，冻结约豆已退还"
+      });
+    } catch (e) {
+      console.error("商家取消通知发送失败", e);
+    }
+  }
+
+  return { code: "cancelled" };
 }
 
 // ── 主入口 ─────────────────────────────────────────────────
@@ -560,6 +787,10 @@ exports.main = async (event) => {
         return { ok: true, ...(await doSubmitResult(OPENID, matchId, choice)) };
       case "verifyLocation":
         return await doVerifyLocation(OPENID, matchId, userLat, userLon, maxDistanceKm);
+      case "close":
+        return { ok: true, ...(await doClose(OPENID, matchId)) };
+      case "cancelByVenueOwner":
+        return { ok: true, ...(await doCancelByVenueOwner(OPENID, matchId)) };
       default:
         return { ok: false, errMsg: "未知操作: " + action };
     }
@@ -567,4 +798,15 @@ exports.main = async (event) => {
     console.error(`matchService[${action}] error`, e);
     return { ok: false, errMsg: e.message || String(e) };
   }
+};
+
+exports.__test__ = {
+  YUEDOU_FROZEN,
+  YUEDOU_WINNER,
+  YUEDOU_SYSTEM,
+  buildSettlement,
+  dedupeParticipants,
+  getFrozenAmount,
+  positiveAmount,
+  uniqueOpenids
 };
