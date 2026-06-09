@@ -17,6 +17,12 @@ Module._load = function patchedLoad(request, parent, isMain) {
           command: {
             inc(value) {
               return { $inc: value };
+            },
+            push(value) {
+              return { $push: value };
+            },
+            gte(value) {
+              return { $gte: value };
             }
           },
           collection() {
@@ -33,6 +39,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 const rules = require("../cloudfunctions/matchService/index.js").__test__;
+const economyRules = require("../cloudfunctions/economyService/index.js").__test__;
 Module._load = originalLoad;
 
 const participants = [
@@ -72,6 +79,15 @@ assert(
 assert(
   !cloudDBSource.includes("runTransaction"),
   "mini program client code must not call cloud database transactions directly"
+);
+assert(
+  !cloudDBSource.includes("daily_pools\").add"),
+  "daily bonus pool creation must happen in the economyService transaction"
+);
+assert.strictEqual(
+  economyRules.buildDailyClaimId("2026-06-09", "openid-1"),
+  "2026-06-09_openid-1",
+  "daily bonus must use a stable per-user per-day claim document"
 );
 
 console.log("economy rules ok");
