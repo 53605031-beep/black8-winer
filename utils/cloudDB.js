@@ -422,22 +422,24 @@ async function _settleMatch(matchId, match, participants) {
     }
 
     if (winnerId) {
+      const winnerFrozen = _getFrozenAmount(participants, winnerId);
+      const loserFrozen = _getFrozenAmount(participants, loserId);
 
-      // 赢家得420，系统得80，输者扣500
+      // 赢家拿回自己的冻结本金，再获得输家冻结约豆里的 420；输家不再额外扣可用余额。
       await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
-        data: { yuedou: db.command.inc(YUEDOU_WINNER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
+        data: { yuedou: db.command.inc(winnerFrozen + YUEDOU_WINNER), yuedouFrozen: db.command.inc(-winnerFrozen) }
       });
       await db.collection("yueqiu8_users").where({ openid: loserId }).update({
-        data: { yuedou: db.command.inc(-YUEDOU_LOSER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
+        data: { yuedouFrozen: db.command.inc(-loserFrozen), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
       });
 
       // 写约豆记录
-      await addScoreRecord(winnerId, "match_win", 10, venueId, matchId);
+      await addScoreRecord(winnerId, "match_win", YUEDOU_WINNER, venueId, matchId);
       await addScoreRecord(loserId, "match_lose", 0, venueId, matchId);
 
       const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
       const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
-      await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+10约豆，冻结约豆已解冻`, createdAt: db.serverDate() });
+      await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+${YUEDOU_WINNER}约豆，冻结约豆已解冻`, createdAt: db.serverDate() });
       await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，冻结约豆已解冻`, createdAt: db.serverDate() });
     }
   } catch (e) {
@@ -805,6 +807,12 @@ function _todayStr() {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function _getFrozenAmount(participants, openid) {
+  const participant = (participants || []).find((p) => p.openid === openid);
+  const frozen = Number(participant?.yuedouFrozen);
+  return Number.isFinite(frozen) && frozen >= 0 ? frozen : YUEDOU_FROZEN;
 }
 
 /**
