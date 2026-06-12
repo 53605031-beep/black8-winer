@@ -114,7 +114,7 @@
 
   <!-- 底部主按钮 -->
   <view class="bottom-bar">
-    <button class="btn-main" bindtap="onPublish" loading="{{publishing}}">
+    <button class="btn-main" bindtap="onPublish" loading="{{publishing}}" disabled="{{publishing}}">
       发布约局
     </button>
   </view>

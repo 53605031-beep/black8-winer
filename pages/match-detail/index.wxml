@@ -69,7 +69,7 @@
           加入需冻结 {{YUEDOU_FROZEN}} 约豆，余额不足无法加入
         </view>
         <view class="row">
-          <button class="btn-primary" size="mini" bindtap="onJoin" loading="{{loading}}">加入约局</button>
+          <button class="btn-primary" size="mini" bindtap="onJoin" loading="{{loading}}" disabled="{{loading}}">加入约局</button>
           <button class="btn-ghost" size="mini" bindtap="onLeave">退出约局</button>
         </view>
         <!-- 授权获取头像昵称提示（昵称为默认"球友"时显示） -->
