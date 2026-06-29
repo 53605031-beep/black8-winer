@@ -390,63 +390,7 @@ async function submitResultChoice(matchId, choice) {
  * @param {Array}  participants  已更新 resultChoice 的 participants
  */
 async function _settleMatch(matchId, match, participants) {
-  const db = DB();
-  const openids = participants.map((p) => p.openid);
-  const choices = {};
-  participants.forEach((p) => { choices[p.openid] = p.resultChoice; });
-
-  const hostChoice = choices[match.hostOpenid] || "";
-  const joinOpenid = openids.find((o) => o !== match.hostOpenid);
-  const joinChoice = choices[joinOpenid] || "";
-  const venueId = match.venueId || null;
-
-  // 1. 先将球局标记为 settled（最重要的一步）
-  await db.collection("matches").doc(matchId).update({
-    data: {
-      status: "settled",
-      finalParticipants: participants.map((p) => ({
-        openid: p.openid,
-        nickname: p.nickname,
-        resultChoice: p.resultChoice
-      }))
-    }
-  });
-
-  try {
-    let winnerId = null, loserId = null;
-
-    if (hostChoice === "win" && joinChoice === "lose") {
-      winnerId = match.hostOpenid; loserId = joinOpenid;
-    } else if (hostChoice === "lose" && joinChoice === "win") {
-      winnerId = joinOpenid; loserId = match.hostOpenid;
-    }
-
-    if (winnerId) {
-
-      // 赢家得420，系统得80，输者扣500
-      await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
-        data: { yuedou: db.command.inc(YUEDOU_WINNER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
-      });
-      await db.collection("yueqiu8_users").where({ openid: loserId }).update({
-        data: { yuedou: db.command.inc(-YUEDOU_LOSER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
-      });
-
-      // 写约豆记录
-      await addScoreRecord(winnerId, "match_win", 10, venueId, matchId);
-      await addScoreRecord(loserId, "match_lose", 0, venueId, matchId);
-
-      const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
-      const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";
-      await addNotice({ type: "match_settled", targetOpenid: winnerId, matchId, content: `🏆 你赢了「${loserNick}」！获得+10约豆，冻结约豆已解冻`, createdAt: db.serverDate() });
-      await addNotice({ type: "match_settled", targetOpenid: loserId, matchId, content: `😅 你输了「${winnerNick}」，冻结约豆已解冻`, createdAt: db.serverDate() });
-    }
-  } catch (e) {
-  }
-
-  // 2. 双方完成比赛各奖励活跃积分（积分变动独立于约豆，失败不影响）
-  for (const oid of openids) {
-    try { await recordMatchComplete(oid); } catch (_) {}
-  }
+  throw new Error("客户端不能结算约豆，请使用 submitResultChoice 调用 matchService");
 }
 
 /**
@@ -455,74 +399,33 @@ async function _settleMatch(matchId, match, participants) {
  * - 进行中（超时）：发起人或参与者可关，双方冻结约豆解冻
  */
 async function closeMatch(matchId, closerOpenid) {
-  const db = DB();
-  const openid = getOpenid() || closerOpenid;
-  const record = await db.collection("matches").doc(matchId).get();
-  const match = record.data;
-
-  if (!match) throw new Error("球局不存在");
-  if (!["recruiting", "playing"].includes(match.status)) throw new Error("当前状态不可关闭");
-
-  // 权限检查：只有发起人或参与者能关闭
-  const isHost = match.hostOpenid === openid;
-  const isParticipant = (match.participants || []).some((p) => p.openid === openid);
-  if (!isHost && !isParticipant) throw new Error("你无权关闭此球局");
-
-  // 招募中（过期）：只检查发起人权限
-  if (match.status === "recruiting") {
-    if (!isHost) throw new Error("仅发起人可关闭招募中的球局");
-  }
-
-  // 进行中（超时）：冻结约豆解冻
-  if (match.status === "playing") {
-    const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
-    for (const uid of allOpenids) {
-      try {
-        const userRec = await db.collection("yueqiu8_users").where({ openid: uid }).get();
-        const user = userRec.data[0];
-        const frozen = user?.yuedouFrozen ?? 0;
-        if (frozen > 0) {
-          await db.collection("yueqiu8_users").where({ openid: uid }).update({
-            data: {
-              yuedou: db.command.inc(frozen),
-              yuedouFrozen: db.command.inc(-frozen)
-            }
-          });
-        }
-      } catch (e) {
-        console.error(`closeMatch 解冻约豆失败 uid=${uid}`, e);
-      }
-    }
-  }
-
-  await db.collection("matches").doc(matchId).update({
-    data: { status: "cancelled", closedAt: db.serverDate(), closedBy: openid }
+  const res = await wx.cloud.callFunction({
+    name: "matchService",
+    data: { action: "close", matchId, closerOpenid }
   });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "关闭失败");
+  return out;
+}
 
-  const noticeType = match.status === "recruiting" ? "match_canceled" : "match_closed";
-  await addNotice({
-    type: noticeType,
-    targetOpenid: match.hostOpenid,
-    matchId,
-    content: match.status === "recruiting"
-      ? `你发起的「${match.venueName}」球局已关闭`
-      : `「${match.venueName}」球局因超时被关闭，冻结约豆已解冻`,
-    createdAt: db.serverDate()
+/**
+ * 商家取消本店球局（走云函数，统一退还冻结约豆）
+ */
+async function cancelMatchByVenueOwner(matchId) {
+  const res = await wx.cloud.callFunction({
+    name: "matchService",
+    data: { action: "cancelByVenueOwner", matchId }
   });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "取消失败");
+  return out;
 }
 
 /**
  * 提交对战结果（兼容旧逻辑，约豆结算由 _settleMatch 统一处理）
  */
 async function submitMatchResult(matchId, winnerId, loserId) {
-  await db.collection("matches").doc(matchId).update({ data: { status: "finished" } });
-  await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
-    data: { score: db.command.inc(10), totalWin: db.command.inc(1) }
-  });
-  await db.collection("yueqiu8_users").where({ openid: loserId }).update({
-    data: { score: db.command.inc(-5), totalLose: db.command.inc(1) }
-  });
-  // 注意：活跃积分（完成比赛+2）在 _settleMatch 中统一处理
+  throw new Error("旧结果接口已停用，请使用 submitResultChoice");
 }
 
 /**
@@ -580,12 +483,15 @@ async function getCurrentUser() {
     });
     ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
   } else {
-    // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
+    // 老用户迁移：只补缺失字段。真实 0 余额不能当成“未初始化”，否则会重复发放初始约豆。
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
-    if (needsFix) {
+    const yuedouFix = {};
+    if (u.yuedou == null) yuedouFix.yuedou = YUEDOU_INITIAL;
+    if (u.yuedouFrozen == null) yuedouFix.yuedouFrozen = 0;
+    if (u.yuedouSystem == null) yuedouFix.yuedouSystem = 0;
+    if (Object.keys(yuedouFix).length > 0) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: yuedouFix
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
@@ -653,70 +559,13 @@ async function updateUserProfile(profile) {
  * @returns {Promise<{code: string, remaining: number, totalClaimed: number}>}
  */
 async function claimDailyBonus() {
-  const openid = getOpenid();
-  if (!openid) throw new Error("未登录");
-
-  const today = _todayString();
-  const db = DB();
-
-  // 1. 找到或创建今日资金池记录
-  let poolRecord;
-  try {
-    poolRecord = await db.collection("daily_pools").doc(today).get();
-  } catch (e) {
-    poolRecord = null;
-  }
-
-  if (!poolRecord || !poolRecord.data) {
-    // 今日池子还不存在，创建它
-    await db.collection("daily_pools").add({
-      data: {
-        _id: today,
-        totalPool: YUEDOU_DAILY_POOL,
-        remaining: YUEDOU_DAILY_POOL,
-        totalClaimed: 0,
-        claimants: [],
-        createdAt: db.serverDate()
-      }
-    });
-    poolRecord = { data: { _id: today, totalPool: YUEDOU_DAILY_POOL, remaining: YUEDOU_DAILY_POOL, totalClaimed: 0, claimants: [] } };
-  }
-
-  const pool = poolRecord.data;
-
-  // 2. 已在 claimants 中，今天领过了
-  if ((pool.claimants || []).includes(openid)) {
-    return { code: "already_claimed", remaining: pool.remaining, totalClaimed: pool.totalClaimed };
-  }
-
-  // 3. 池子空了
-  if ((pool.remaining || 0) < YUEDOU_DAILY_BONUS) {
-    return { code: "pool_empty", remaining: 0, totalClaimed: pool.totalClaimed };
-  }
-
-  // 4. 发放约豆
-  await db.collection("yueqiu8_users").where({ openid }).update({
-    data: { yuedou: db.command.inc(YUEDOU_DAILY_BONUS) }
+  const res = await wx.cloud.callFunction({
+    name: "economyService",
+    data: { action: "claimDailyBonus" }
   });
-
-  // 5. 更新池子：remaining 减少，claimants 加入当前用户
-  await db.collection("daily_pools").doc(today).update({
-    data: {
-      remaining: db.command.inc(-YUEDOU_DAILY_BONUS),
-      totalClaimed: db.command.inc(YUEDOU_DAILY_BONUS),
-      claimants: db.command.push(openid)
-    }
-  });
-
-  // 6. 发一条通知
-  await addNotice({
-    type: "daily_bonus",
-    targetOpenid: openid,
-    content: `每日礼包到账 +${YUEDOU_DAILY_BONUS} 约豆，今日资金池剩余 ${pool.remaining - YUEDOU_DAILY_BONUS} 约豆`,
-    createdAt: db.serverDate()
-  });
-
-  return { code: "ok", remaining: pool.remaining - YUEDOU_DAILY_BONUS, totalClaimed: pool.totalClaimed + YUEDOU_DAILY_BONUS };
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "领取失败");
+  return out;
 }
 
 /**
@@ -1706,6 +1555,7 @@ module.exports = {
   // matches
   getMyActiveMatches,
   closeMatch,
+  cancelMatchByVenueOwner,
   getMatches,
   getMatchesByVenue,
   getMatchById,
