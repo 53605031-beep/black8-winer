@@ -119,12 +119,6 @@ App({
    * @returns {Promise<string|null>}
    */
   async doLogin() {
-    const cachedOpenid = wx.getStorageSync("openid");
-    if (cachedOpenid) {
-      this.globalData.openid = cachedOpenid;
-      return cachedOpenid;
-    }
-
     if (!wx.cloud) {
       this.globalData.lastLoginError = "当前基础库不支持云开发";
       return null;
@@ -132,6 +126,9 @@ App({
 
     try {
       wx.showLoading({ title: "登录中...", mask: true });
+      // 本地缓存不能当成身份凭证；每次启动都向云函数确认当前微信账号的 openid。
+      this.globalData.openid = null;
+      wx.removeStorageSync("openid");
 
       const { result } = await wx.cloud.callFunction({
         name: "login"
