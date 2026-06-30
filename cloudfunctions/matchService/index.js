@@ -72,7 +72,7 @@ async function refundParticipantsInTransaction(transaction, participants) {
     if (amount <= 0) continue;
     const user = await getUserByOpenid(uid, transaction);
     if (!user) throw new Error("用户不存在，无法退还冻结约豆");
-    transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
       data: {
         yuedou: _.inc(amount),
         yuedouFrozen: _.inc(-amount)
@@ -258,7 +258,7 @@ async function doPublish(openid, matchData) {
     });
     matchId = matchRes._id;
 
-    transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN)
@@ -316,14 +316,14 @@ async function doJoin(openid, matchId) {
     const updatedParticipants = participants.concat(addedParticipant);
     venueId = match.venueId || null;
 
-    transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.update(db.collection("matches").doc(matchId), {
       data: {
         participants: updatedParticipants,
         headcountJoined: updatedParticipants.length
       }
     });
 
-    transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
       data: {
         yuedou: _.inc(-YUEDOU_FROZEN),
         yuedouFrozen: _.inc(YUEDOU_FROZEN)
@@ -359,7 +359,7 @@ async function doLeave(openid, matchId) {
 
     if (match.hostOpenid === openid) {
       await refundParticipantsInTransaction(transaction, participants);
-      transaction.update(db.collection("matches").doc(matchId), {
+      await transaction.update(db.collection("matches").doc(matchId), {
         data: {
           status: "cancelled",
           closedAt: db.serverDate(),
@@ -375,7 +375,7 @@ async function doLeave(openid, matchId) {
     if (frozenAmount > 0) {
       const user = await getUserByOpenid(openid, transaction);
       if (!user) throw new Error("用户不存在，无法退还冻结约豆");
-      transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+      await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
         data: {
           yuedou: _.inc(frozenAmount),
           yuedouFrozen: _.inc(-frozenAmount)
@@ -384,7 +384,7 @@ async function doLeave(openid, matchId) {
     }
 
     const updatedParticipants = participants.filter((p) => p.openid !== openid);
-    transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.update(db.collection("matches").doc(matchId), {
       data: {
         participants: updatedParticipants,
         headcountJoined: updatedParticipants.length
@@ -466,7 +466,7 @@ async function doSubmitResult(openid, matchId, choice) {
 
     const bothSelected = updated.every((p) => p.resultChoice != null);
     if (!bothSelected) {
-      transaction.update(db.collection("matches").doc(matchId), {
+      await transaction.update(db.collection("matches").doc(matchId), {
         data: { participants: updated }
       });
       outcome = { code: "ok", bothSelected: false };
@@ -483,7 +483,7 @@ async function doSubmitResult(openid, matchId, choice) {
                          (hostChoice === "lose" && joinChoice === "win");
 
     if (!isConsistent) {
-      transaction.update(db.collection("matches").doc(matchId), {
+      await transaction.update(db.collection("matches").doc(matchId), {
         data: {
           participants: updated.map((p) => ({ ...p, resultChoice: null })),
           conflictAt: db.serverDate()
@@ -503,7 +503,7 @@ async function doSubmitResult(openid, matchId, choice) {
     const loserUser = await getUserByOpenid(loserId, transaction);
     if (!winnerUser || !loserUser) throw new Error("用户数据异常，无法结算");
 
-    transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.update(db.collection("matches").doc(matchId), {
       data: {
         status: "settled",
         participants: updated.map((p) => ({ ...p, yuedouFrozen: 0 })),
@@ -515,20 +515,20 @@ async function doSubmitResult(openid, matchId, choice) {
       }
     });
 
-    transaction.update(db.collection("yueqiu8_users").doc(winnerUser._id), {
+    await transaction.update(db.collection("yueqiu8_users").doc(winnerUser._id), {
       data: {
         yuedou: _.inc(winnerFrozen + YUEDOU_WINNER),
         yuedouFrozen: _.inc(-winnerFrozen)
       }
     });
-    transaction.update(db.collection("yueqiu8_users").doc(loserUser._id), {
+    await transaction.update(db.collection("yueqiu8_users").doc(loserUser._id), {
       data: {
         yuedouFrozen: _.inc(-loserFrozen),
         yuedouSystem: _.inc(YUEDOU_SYSTEM)
       }
     });
 
-    transaction.add(db.collection("score_records"), {
+    await transaction.add(db.collection("score_records"), {
       data: {
         userId: winnerId,
         type: "match_win",
@@ -538,7 +538,7 @@ async function doSubmitResult(openid, matchId, choice) {
         createdAt: db.serverDate()
       }
     });
-    transaction.add(db.collection("score_records"), {
+    await transaction.add(db.collection("score_records"), {
       data: {
         userId: loserId,
         type: "match_lose",
@@ -655,7 +655,7 @@ async function doClose(openid, matchId) {
     }
 
     await refundParticipantsInTransaction(transaction, participants);
-    transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.update(db.collection("matches").doc(matchId), {
       data: {
         status: "cancelled",
         closedAt: db.serverDate(),
@@ -701,7 +701,7 @@ async function doCancelByVenueOwner(openid, matchId) {
     if (!venue || venue.ownerOpenid !== openid) throw new Error("仅球房商家可取消本店球局");
 
     await refundParticipantsInTransaction(transaction, match.participants || []);
-    transaction.update(db.collection("matches").doc(matchId), {
+    await transaction.update(db.collection("matches").doc(matchId), {
       data: {
         status: "cancelled",
         closedAt: db.serverDate(),
