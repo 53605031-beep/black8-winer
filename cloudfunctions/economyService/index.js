@@ -80,12 +80,12 @@ async function claimDailyBonus(openid) {
     const remainingAfter = (pool.remaining || 0) - YUEDOU_DAILY_BONUS;
     const totalClaimedAfter = (pool.totalClaimed || 0) + YUEDOU_DAILY_BONUS;
 
-    transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
       data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
     });
 
     if (poolExists) {
-      transaction.update(poolRef, {
+      await transaction.update(poolRef, {
         data: {
           remaining: _.inc(-YUEDOU_DAILY_BONUS),
           totalClaimed: _.inc(YUEDOU_DAILY_BONUS),
@@ -93,7 +93,7 @@ async function claimDailyBonus(openid) {
         }
       });
     } else {
-      transaction.set(poolRef, {
+      await transaction.set(poolRef, {
         data: {
           totalPool: YUEDOU_DAILY_POOL,
           remaining: remainingAfter,
@@ -104,7 +104,7 @@ async function claimDailyBonus(openid) {
       });
     }
 
-    transaction.set(claimRef, {
+    await transaction.set(claimRef, {
       data: {
         openid,
         date: today,
@@ -115,7 +115,7 @@ async function claimDailyBonus(openid) {
       }
     });
 
-    transaction.add(db.collection("score_records"), {
+    await transaction.add(db.collection("score_records"), {
       data: {
         userId: openid,
         type: "daily_bonus",
