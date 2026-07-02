@@ -119,7 +119,10 @@ async function saveGoods(openid, goodsData, goodsId) {
     const current = (await db.collection("mall_goods").doc(goodsId).get()).data;
     if (!current) throw new Error("商品不存在");
     await requireVenueManager(openid, current.venueId || null);
-    forcedVenueId = isAdmin(openid) ? (goodsData?.venueId || null) : current.venueId;
+    const hasVenueId = Object.prototype.hasOwnProperty.call(goodsData || {}, "venueId");
+    forcedVenueId = isAdmin(openid)
+      ? (hasVenueId ? (goodsData.venueId || null) : (current.venueId || null))
+      : current.venueId;
   } else {
     const requestedVenueId = goodsData?.venueId || null;
     await requireVenueManager(openid, requestedVenueId);
