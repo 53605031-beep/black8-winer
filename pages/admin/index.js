@@ -49,7 +49,7 @@ Page({
 
   async _checkAdmin() {
     const app = getApp();
-    let openid = app.globalData.openid || wx.getStorageSync("openid");
+    let openid = app.globalData.openid;
     if (!openid && app.doLogin) {
       openid = await app.doLogin();
     }

@@ -1311,108 +1311,13 @@ async function getGoodsById(goodsId) {
  * @param {object} address  收货地址（虚拟商品可传 null）
  */
 async function redeemGoods(goodsId, address = null) {
-  const openid = getOpenid();
-  const db = DB();
-
-  // 1. 校验商品
-  const goods = await getGoodsById(goodsId);
-  if (!goods) throw new Error("商品不存在");
-  if (goods.status !== "active") throw new Error("商品已下架");
-  if (goods.stock <= 0) throw new Error("库存不足");
-
-  const price = goods.price;
-  const currencyType = goods.currencyType || "score";
-  const currencyName = currencyType === "yuedou" ? "约豆" : "积分";
-
-  // 2. 如果是球房专属商品，检查用户是否有权限（参与过该球房的比赛）
-  if (goods.venueId) {
-    const { data: accessData } = await db.collection("venue_access")
-      .where({ userId: openid, venueId: goods.venueId })
-      .get();
-    if (!accessData || accessData.length === 0) {
-      throw new Error("只有参与过该球房比赛的球友才能兑换此福利");
-    }
-  }
-
-  // 3. 校验用户余额
-  const user = await getCurrentUser();
-  const userBalance = currencyType === "yuedou" ? (user.yuedou || 0) : (user.score || 0);
-  if (userBalance < price) {
-    throw new Error(`${currencyName}不足，需要 ${price} ${currencyName}，你只有 ${userBalance} ${currencyName}`);
-  }
-
-  // 4. 每日兑换次数限制（每人每天最多兑换 3 次）
-  const today = _todayString();
-  const todayStart = new Date(today + "T00:00:00").getTime();
-  const { total } = await db.collection("mall_redemptions")
-    .where({
-      openid,
-      createdAt: db.command.gte(new Date(todayStart))
-    })
-    .count();
-  if (total >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
-
-  // 5. 原子操作：扣款 + 扣库存 + 创建兑换记录 + 写约豆记录
-  await db.runTransaction(async (transaction) => {
-    const userCheck = await transaction.get(db.collection("yueqiu8_users").where({ openid }));
-    const u = userCheck.data[0];
-    const balance = currencyType === "yuedou" ? (u.yuedou || 0) : (u.score || 0);
-    if (!u || balance < price) throw new Error(`${currencyName}不足`);
-
-    const goodsCheck = await transaction.get(db.collection("mall_goods").doc(goodsId));
-    const g = goodsCheck.data;
-    if (!g || g.stock <= 0) throw new Error("库存不足");
-
-    // 扣款
-    if (currencyType === "yuedou") {
-      transaction.update(db.collection("yueqiu8_users").where({ openid }), {
-        data: { yuedou: db.command.inc(-price) }
-      });
-    } else {
-      transaction.update(db.collection("yueqiu8_users").where({ openid }), {
-        data: { score: db.command.inc(-price) }
-      });
-    }
-
-    // 扣库存
-    transaction.update(db.collection("mall_goods").doc(goodsId), {
-      data: { stock: db.command.inc(-1), redeemedCount: db.command.inc(1) }
-    });
-
-    // 创建兑换记录
-    transaction.add(db.collection("mall_redemptions"), {
-      data: {
-        openid,
-        nickname: u.nickname || "球友",
-        goodsId,
-        goodsName: g.name,
-        goodsImage: g.image || "",
-        price,
-        currencyType,
-        category: g.category || "physical",
-        venueId: g.venueId || null,
-        address,
-        status: g.category === "virtual" ? "completed" : "pending",
-        createdAt: db.serverDate()
-      }
-    });
-
-    // 写约豆记录（如果是约豆商品）
-    if (currencyType === "yuedou") {
-      transaction.add(db.collection("score_records"), {
-        data: {
-          userId: openid,
-          type: "exchange",
-          amount: -price,
-          venueId: g.venueId || null,
-          matchId: null,
-          createdAt: db.serverDate()
-        }
-      });
-    }
+  const res = await wx.cloud.callFunction({
+    name: "economyService",
+    data: { action: "redeemGoods", goodsId, address }
   });
-
-  return { success: true, message: "兑换成功", currencyType };
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "兑换失败");
+  return out;
 }
 
 /**
@@ -1432,36 +1337,21 @@ async function getMyRedemptions() {
  * 管理员：获取所有兑换记录
  */
 async function getAllRedemptions(status) {
-  const where = status ? { status } : {};
-  const { data } = await DB().collection("mall_redemptions")
-    .where(where)
-    .orderBy("createdAt", "desc")
-    .limit(100)
-    .get();
-  return data;
+  return _callMallManage("getAllRedemptions", { status });
 }
 
 /**
  * 管理员：待跟进的兑换（待发货 + 已发货待核销），用于后台发货流程
  */
 async function getRedemptionsForFulfillment() {
-  const db = DB();
-  const _ = db.command;
-  const { data } = await db.collection("mall_redemptions")
-    .where(_.or([{ status: "pending" }, { status: "shipped" }]))
-    .orderBy("createdAt", "desc")
-    .limit(100)
-    .get();
-  return data;
+  return _callMallManage("getRedemptionsForFulfillment");
 }
 
 /**
  * 管理员：更新兑换状态（实物发货）
  */
 async function updateRedemptionStatus(redemptionId, status) {
-  return DB().collection("mall_redemptions").doc(redemptionId).update({
-    data: { status, updatedAt: DB().serverDate() }
-  });
+  return _callMallManage("updateRedemptionStatus", { redemptionId, status });
 }
 
 /**
@@ -1469,47 +1359,22 @@ async function updateRedemptionStatus(redemptionId, status) {
  * @param {object} goodsData 包含 currencyType: "yuedou" | "score"，venueId（可选）
  */
 async function saveGoods(goodsData, goodsId = null) {
-  const db = DB();
-  const now = db.serverDate();
-  const data = {
-    name: goodsData.name,
-    description: goodsData.description || "",
-    image: goodsData.image || "",
-    price: parseInt(goodsData.price) || 0,
-    stock: parseInt(goodsData.stock) || 0,
-    category: goodsData.category || "physical",
-    currencyType: goodsData.currencyType || "score",
-    venueId: goodsData.venueId || null,
-    sort: parseInt(goodsData.sort) || 0,
-    status: goodsData.status || "active",
-    updatedAt: now
-  };
-  if (goodsId) {
-    await db.collection("mall_goods").doc(goodsId).update({ data });
-    return goodsId;
-  } else {
-    data.createdAt = now;
-    const result = await db.collection("mall_goods").add({ data });
-    return result._id;
-  }
+  const out = await _callMallManage("saveGoods", { goodsData, goodsId });
+  return out.goodsId;
 }
 
 /**
  * 管理员：删除商品
  */
 async function deleteGoods(goodsId) {
-  return DB().collection("mall_goods").doc(goodsId).remove();
+  return _callMallManage("deleteGoods", { goodsId });
 }
 
 /**
  * 管理员：获取所有商品（含下架的）
  */
 async function getAllGoods() {
-  const { data } = await DB().collection("mall_goods")
-    .orderBy("sort", "asc")
-    .orderBy("createdAt", "desc")
-    .get();
-  return data;
+  return _callMallManage("getAllGoods");
 }
 
 /**
@@ -1517,26 +1382,24 @@ async function getAllGoods() {
  * @param {string} venueId
  */
 async function getMyVenueGoods(venueId) {
-  const { data } = await DB().collection("mall_goods")
-    .where({ venueId })
-    .orderBy("sort", "asc")
-    .orderBy("createdAt", "desc")
-    .get();
-  return data;
+  return _callMallManage("getMyVenueGoods", { venueId });
 }
 
 /**
  * 商家：获取本店兑换订单（待处理 + 历史）
  */
 async function getMyVenueRedemptions(venueId) {
-  const db = DB();
-  const _ = db.command;
-  const { data } = await db.collection("mall_redemptions")
-    .where({ venueId })
-    .orderBy("createdAt", "desc")
-    .limit(100)
-    .get();
-  return data;
+  return _callMallManage("getMyVenueRedemptions", { venueId });
+}
+
+async function _callMallManage(action, data = {}) {
+  const res = await wx.cloud.callFunction({
+    name: "mallManage",
+    data: { action, ...data }
+  });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "商城管理操作失败");
+  return out.data != null ? out.data : out;
 }
 
 module.exports = {

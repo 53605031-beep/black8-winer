@@ -8,7 +8,9 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const cloudDB = read("utils/cloudDB.js");
 const matchService = read("cloudfunctions/matchService/index.js");
 const economyService = read("cloudfunctions/economyService/index.js");
+const mallManage = read("cloudfunctions/mallManage/index.js");
 const venueDetail = read("pages/venue-detail/index.js");
+const adminGoods = read("pages/admin-goods/index.js");
 
 assert(
   !cloudDB.includes("u.yuedou === 0"),
@@ -53,6 +55,26 @@ assert(
 assert(
   !cloudDB.includes("db.command.inc(-YUEDOU_LOSER)"),
   "客户端工具层不能保留旧的输家二次扣款结算逻辑"
+);
+
+assert(
+  cloudDB.includes('name: "economyService"') && economyService.includes('action === "redeemGoods"'),
+  "商城兑换必须通过 economyService 服务端事务扣款和扣库存"
+);
+
+assert(
+  economyService.includes("mall_daily_redemptions") && economyService.includes("MAX_DAILY_REDEMPTIONS"),
+  "商城兑换每日次数限制必须使用服务端幂等计数"
+);
+
+assert(
+  cloudDB.includes('name: "mallManage"') && mallManage.includes("cloud.getWXContext()"),
+  "商品后台读写必须通过 mallManage 用云端 OPENID 鉴权"
+);
+
+assert(
+  !adminGoods.includes('wx.getStorageSync("openid")'),
+  "商品后台页面不能用本地缓存 openid 判断管理员权限"
 );
 
 console.log("economy rules checks passed");

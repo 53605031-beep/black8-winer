@@ -12,6 +12,7 @@ const _ = db.command;
 
 const YUEDOU_DAILY_BONUS = 1000;
 const YUEDOU_DAILY_POOL = 50000;
+const MAX_DAILY_REDEMPTIONS = 3;
 
 function todayString() {
   const now = new Date();
@@ -148,14 +149,117 @@ async function claimDailyBonus(openid) {
   return outcome || { code: "already_claimed", remaining: 0, totalClaimed: 0 };
 }
 
+async function redeemGoods(openid, goodsId, address = null) {
+  if (!goodsId) throw new Error("缺少商品ID");
+
+  const today = todayString();
+  const counterRef = db.collection("mall_daily_redemptions").doc(`${today}_${openid}`);
+  let outcome = null;
+
+  await db.runTransaction(async (transaction) => {
+    const goodsRef = db.collection("mall_goods").doc(goodsId);
+    const goodsSnap = await transaction.get(goodsRef);
+    const goods = goodsSnap.data;
+    if (!goods) throw new Error("商品不存在");
+    if (goods.status !== "active") throw new Error("商品已下架");
+    if ((goods.stock || 0) <= 0) throw new Error("库存不足");
+
+    if (goods.venueId) {
+      const access = await transaction.get(
+        db.collection("venue_access").where({ userId: openid, venueId: goods.venueId })
+      );
+      if (!access.data || access.data.length === 0) {
+        throw new Error("只有参与过该球房比赛的球友才能兑换此福利");
+      }
+    }
+
+    const user = await getUserByOpenid(openid, transaction);
+    if (!user) throw new Error("用户不存在，请先登录");
+
+    let todayCount = 0;
+    try {
+      const counter = await transaction.get(counterRef);
+      todayCount = counter.data?.count || 0;
+    } catch (_) {}
+    if (todayCount >= MAX_DAILY_REDEMPTIONS) {
+      throw new Error("今日兑换次数已用完（每天最多兑换3次）");
+    }
+
+    const price = goods.price || 0;
+    const currencyType = goods.currencyType || "score";
+    const currencyName = currencyType === "yuedou" ? "约豆" : "积分";
+    const balance = currencyType === "yuedou" ? (user.yuedou ?? 0) : (user.score ?? 0);
+    if (balance < price) {
+      throw new Error(`${currencyName}不足，需要 ${price} ${currencyName}，你只有 ${balance} ${currencyName}`);
+    }
+
+    await transaction.update(db.collection("yueqiu8_users").doc(user._id), {
+      data: currencyType === "yuedou"
+        ? { yuedou: _.inc(-price) }
+        : { score: _.inc(-price) }
+    });
+
+    await transaction.update(goodsRef, {
+      data: { stock: _.inc(-1), redeemedCount: _.inc(1) }
+    });
+
+    if (todayCount > 0) {
+      await transaction.update(counterRef, {
+        data: { count: _.inc(1), updatedAt: db.serverDate() }
+      });
+    } else {
+      await transaction.set(counterRef, {
+        data: { openid, date: today, count: 1, createdAt: db.serverDate(), updatedAt: db.serverDate() }
+      });
+    }
+
+    await transaction.add(db.collection("mall_redemptions"), {
+      data: {
+        openid,
+        nickname: user.nickname || "球友",
+        goodsId,
+        goodsName: goods.name,
+        goodsImage: goods.image || "",
+        price,
+        currencyType,
+        category: goods.category || "physical",
+        venueId: goods.venueId || null,
+        address,
+        status: goods.category === "virtual" ? "completed" : "pending",
+        createdAt: db.serverDate()
+      }
+    });
+
+    if (currencyType === "yuedou") {
+      await transaction.add(db.collection("score_records"), {
+        data: {
+          userId: openid,
+          type: "exchange",
+          amount: -price,
+          venueId: goods.venueId || null,
+          matchId: null,
+          createdAt: db.serverDate()
+        }
+      });
+    }
+
+    outcome = { success: true, message: "兑换成功", currencyType };
+  });
+
+  return outcome || { success: true, message: "兑换成功" };
+}
+
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   if (!OPENID) return { ok: false, errMsg: "无法获取用户身份" };
 
-  const { action } = event || {};
+  const { action, goodsId, address } = event || {};
   try {
     if (action === "claimDailyBonus") {
       return { ok: true, ...(await claimDailyBonus(OPENID)) };
+    }
+    if (action === "redeemGoods") {
+      return { ok: true, ...(await redeemGoods(OPENID, goodsId, address || null)) };
     }
     return { ok: false, errMsg: "未知操作: " + action };
   } catch (e) {
