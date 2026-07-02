@@ -21,13 +21,17 @@ Page({
     }
   },
 
-  onShow() {
-    this._checkAdmin();
+  async onShow() {
+    await this._checkAdmin();
   },
 
   async _checkAdmin() {
-    const openid = getApp().globalData.openid || wx.getStorageSync("openid");
-    const adminOpenids = getApp().globalData.adminOpenids || [];
+    const app = getApp();
+    let openid = app.globalData.openid;
+    if (!openid && app.doLogin) {
+      openid = await app.doLogin();
+    }
+    const adminOpenids = app.globalData.adminOpenids || [];
     if (!adminOpenids.includes(openid)) {
       wx.showModal({
         title: "无权限",

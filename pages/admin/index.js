@@ -29,6 +29,7 @@ Page({
   },
 
   async onShow() {
+    if (!(await this._checkAdmin())) return;
     // 从地图选点页返回时，自动填充名称和地址
     if (this.data.showAddModal) {
       const app = getApp();
@@ -44,6 +45,24 @@ Page({
       }
     }
     await this._load();
+  },
+
+  async _checkAdmin() {
+    const app = getApp();
+    let openid = app.globalData.openid;
+    if (!openid && app.doLogin) {
+      openid = await app.doLogin();
+    }
+    const adminOpenids = app.globalData.adminOpenids || [];
+    if (adminOpenids.includes(openid)) return true;
+
+    wx.showModal({
+      title: "无权限",
+      content: "后台管理仅限管理员使用。",
+      showCancel: false,
+      success: () => wx.navigateBack()
+    });
+    return false;
   },
 
   async onPullDownRefresh() {
