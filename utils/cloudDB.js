@@ -580,12 +580,12 @@ async function getCurrentUser() {
     });
     ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
   } else {
-    // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
+    // 老用户迁移：只补缺失字段，不能把真实的 0 余额重置成初始值。
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
-    if (needsFix) {
+    const yuedouPatch = buildLegacyYuedouPatch(u);
+    if (Object.keys(yuedouPatch).length > 0) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: yuedouPatch
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
@@ -1252,6 +1252,14 @@ function _todayString() {
   return `${y}-${m}-${d}`;
 }
 
+function buildLegacyYuedouPatch(user) {
+  const patch = {};
+  if (user.yuedou == null) patch.yuedou = YUEDOU_INITIAL;
+  if (user.yuedouFrozen == null) patch.yuedouFrozen = 0;
+  if (user.yuedouSystem == null) patch.yuedouSystem = 0;
+  return patch;
+}
+
 /* ─────────────────────────────── 用户角色判断 ─────────────────────────────── */
 
 /**
@@ -1744,6 +1752,7 @@ module.exports = {
   DB,
   getOpenid,
   _calcDistance,
+  buildLegacyYuedouPatch,
   // 用户角色
   getUserRole,
   isAdmin,
