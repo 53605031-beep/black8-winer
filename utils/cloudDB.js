@@ -381,6 +381,19 @@ async function submitResultChoice(matchId, choice) {
   return out;
 }
 
+/**
+ * 商家取消自己球房下的球局，必须走云函数退款并校验球房归属。
+ */
+async function cancelMatchByVenueOwner(matchId) {
+  const res = await wx.cloud.callFunction({
+    name: "matchService",
+    data: { action: "cancelByVenueOwner", matchId }
+  });
+  const out = res.result || {};
+  if (!out.ok) throw new Error(out.errMsg || "取消失败");
+  return out;
+}
+
 /* ─────────────────────────────── 阶段3之后：结算（云函数内调用，不对外暴露）────── */
 
 /**
@@ -580,12 +593,15 @@ async function getCurrentUser() {
     });
     ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
   } else {
-    // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
+    // 老用户迁移：只补真正缺失的字段，不能把用户真实用光的 0 约豆重置。
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
-    if (needsFix) {
+    const yuedouFix = {};
+    if (u.yuedou == null) yuedouFix.yuedou = YUEDOU_INITIAL;
+    if (u.yuedouFrozen == null) yuedouFix.yuedouFrozen = 0;
+    if (u.yuedouSystem == null) yuedouFix.yuedouSystem = 0;
+    if (Object.keys(yuedouFix).length > 0) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: yuedouFix
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
@@ -1715,6 +1731,7 @@ module.exports = {
   confirmMatch,
   verifyLocation,
   submitResultChoice,
+  cancelMatchByVenueOwner,
   submitMatchResult,
   // users
   getCurrentUser,
