@@ -371,27 +371,35 @@ async function doLeave(openid, matchId) {
 
 // ── 确认比赛开始 ───────────────────────────────────────────
 async function doConfirm(openid, matchId) {
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
-  if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
-  if (match.status !== "recruiting") throw new Error("当前状态不可确认");
+  let matchForScore = null;
+  let participantsForScore = [];
+  await db.runTransaction(async (transaction) => {
+    const matchRef = db.collection("matches").doc(matchId);
+    const matchSnap = await transaction.get(matchRef);
+    const match = matchSnap.data;
+    if (!match) throw new Error("球局不存在");
+    if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
+    if (match.status !== "recruiting") throw new Error("当前状态不可确认");
 
-  const participants = normalizeParticipants(match.participants);
-  economy.assertTwoPlayerMatch(match, participants);
-  if (participants.length < (match.headcountTarget || 2)) {
-    throw new Error("球局未满员，不能开始");
-  }
+    const participants = normalizeParticipants(match.participants);
+    economy.assertTwoPlayerMatch(match, participants);
+    if (participants.length < (match.headcountTarget || 2)) {
+      throw new Error("球局未满员，不能开始");
+    }
 
-  const allVerified = participants.every((p) => p.locationVerified);
-  if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
+    const allVerified = participants.every((p) => p.locationVerified);
+    if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
 
-  await db.collection("matches").doc(matchId).update({
-    data: { status: "playing", startedAt: db.serverDate() }
+    await transaction.update(matchRef, {
+      data: { status: "playing", startedAt: db.serverDate() }
+    });
+    matchForScore = match;
+    participantsForScore = participants;
   });
 
-  const allOpenids = economy.getUniqueOpenids(participants);
+  const allOpenids = economy.getUniqueOpenids(participantsForScore);
   for (const uid of allOpenids) {
-    const isHost = uid === match.hostOpenid;
+    const isHost = uid === matchForScore.hostOpenid;
     await recordMatchParticipation(uid, matchId, isHost);
   }
 
