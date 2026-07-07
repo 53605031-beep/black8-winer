@@ -29,6 +29,17 @@ Page({
   },
 
   async onShow() {
+    const ok = await cloudDB.isAdmin();
+    if (!ok) {
+      wx.showModal({
+        title: "无权限",
+        content: "后台管理仅限管理员使用。",
+        showCancel: false,
+        success: () => wx.navigateBack()
+      });
+      return;
+    }
+
     // 从地图选点页返回时，自动填充名称和地址
     if (this.data.showAddModal) {
       const app = getApp();
