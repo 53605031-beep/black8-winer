@@ -121,13 +121,13 @@ App({
   async doLogin() {
     const cachedOpenid = wx.getStorageSync("openid");
     if (cachedOpenid) {
+      // 只临时用于页面展示，真正身份必须以 login 云函数返回为准。
       this.globalData.openid = cachedOpenid;
-      return cachedOpenid;
     }
 
     if (!wx.cloud) {
       this.globalData.lastLoginError = "当前基础库不支持云开发";
-      return null;
+      return cachedOpenid || null;
     }
 
     try {
@@ -151,7 +151,7 @@ App({
       const msg = (e && (e.errMsg || e.message)) ? String(e.errMsg || e.message) : String(e);
       this.globalData.lastLoginError = msg;
       console.error("登录失败", e);
-      return null;
+      return cachedOpenid || null;
     } finally {
       wx.hideLoading();
     }

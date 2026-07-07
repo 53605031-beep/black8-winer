@@ -22,9 +22,9 @@ function computeCanClose(match, myOpenid) {
 
   if (match.status === "playing") {
     // 进行中：超过 6 小时就能关
-    if (!match.startedAt) return true; // 没有 startedAt 字段的老数据也允许关
+    if (!match.startedAt) return false;
     const hoursSinceStart = (Date.now() - new Date(match.startedAt).getTime()) / 3600000;
-    return hoursSinceStart > 6;
+    return Number.isFinite(hoursSinceStart) && hoursSinceStart > 6;
   }
 
   return false;
