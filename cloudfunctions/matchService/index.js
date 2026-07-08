@@ -14,6 +14,7 @@
  *   publish          发布新球局（与 join 同级）
  */
 const cloud = require("wx-server-sdk");
+const { buildSettlementDeltas } = require("./economy");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -23,7 +24,6 @@ const _ = db.command;
 const YUEDOU_INITIAL = 10000;
 const YUEDOU_FROZEN  = 500;
 const YUEDOU_WINNER  = 420;   // 赢家获得
-const YUEDOU_LOSER   = -500;  // 输家损失
 const YUEDOU_SYSTEM  = 80;     // 系统抽成
 
 // 积分常量
@@ -309,6 +309,10 @@ async function doLeave(openid, matchId) {
   }
 
   if (match.hostOpenid === openid) {
+    if (match.status !== "recruiting") {
+      throw new Error("比赛已开始，发起人不能直接退出撤销");
+    }
+
     // 发起人：删除球局，退款所有人
     await db.collection("matches").doc(matchId).remove();
 
@@ -367,15 +371,20 @@ async function doConfirm(openid, matchId) {
   if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
   if (match.status !== "recruiting") throw new Error("当前状态不可确认");
 
-  const allVerified = (match.participants || []).every((p) => p.locationVerified);
+  const participants = match.participants || [];
+  const uniqueOpenids = Array.from(new Set(participants.map((p) => p.openid).filter(Boolean)));
+  if (participants.length !== 2 || uniqueOpenids.length !== 2 || (match.headcountTarget || 2) !== 2) {
+    throw new Error("当前版本仅支持满员的双人球局开始比赛");
+  }
+
+  const allVerified = participants.every((p) => p.locationVerified);
   if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
 
   await db.collection("matches").doc(matchId).update({
     data: { status: "playing", startedAt: db.serverDate() }
   });
 
-  const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
-  for (const uid of allOpenids) {
+  for (const uid of uniqueOpenids) {
     const isHost = uid === match.hostOpenid;
     await recordMatchParticipation(uid, matchId, isHost);
   }
@@ -505,23 +514,30 @@ async function doSettleMatch(matchId, match, participants) {
       return;
     }
 
-    await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
+    const winner = participants.find((p) => p.openid === winnerId);
+    const loser = participants.find((p) => p.openid === loserId);
+    if (!winner || !loser) {
+      throw new Error("结算参与人异常");
+    }
+
+    const deltas = buildSettlementDeltas({ winner, loser, frozenFallback: YUEDOU_FROZEN });
+
+    await db.collection("yueqiu8_users").where({ openid: deltas.winner.openid }).update({
       data: {
-        yuedou: _.inc(YUEDOU_WINNER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
+        yuedou: _.inc(deltas.winner.yuedouDelta),
+        yuedouFrozen: _.inc(deltas.winner.frozenDelta),
+        yuedouSystem: _.inc(deltas.systemFee)
       }
     });
-    await db.collection("yueqiu8_users").where({ openid: loserId }).update({
+    await db.collection("yueqiu8_users").where({ openid: deltas.loser.openid }).update({
       data: {
-        yuedou: _.inc(YUEDOU_LOSER),
-        yuedouFrozen: _.inc(-YUEDOU_FROZEN),
-        yuedouSystem: _.inc(YUEDOU_SYSTEM)
+        yuedou: _.inc(deltas.loser.yuedouDelta),
+        yuedouFrozen: _.inc(deltas.loser.frozenDelta)
       }
     });
 
-    await addScoreRecord(winnerId, "match_win", 10, venueId, matchId);
-    await addScoreRecord(loserId, "match_lose", 0, venueId, matchId);
+    await addScoreRecord(winnerId, "match_win", deltas.winner.recordAmount, venueId, matchId);
+    await addScoreRecord(loserId, "match_lose", deltas.loser.recordAmount, venueId, matchId);
 
     const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
     const loserNick  = participants.find((p) => p.openid === loserId)?.nickname  || "某用户";

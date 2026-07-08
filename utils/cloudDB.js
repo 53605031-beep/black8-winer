@@ -225,7 +225,7 @@ async function deleteVenue(venueId) {
 
 // 约豆结算常量（全局共享）
 const YUEDOU_FROZEN      = 500;   // 加入时冻结
-const YUEDOU_LOSER       = 500;   // 输者扣：赢家+420，系统+80
+const YUEDOU_LOSER       = 500;   // 输者扣除已冻结的500，不能再从可用余额二次扣款
 const YUEDOU_WINNER      = 420;
 const YUEDOU_SYSTEM      = 80;
 const YUEDOU_INITIAL     = 10000;  // 新用户注册赠送
@@ -423,16 +423,24 @@ async function _settleMatch(matchId, match, participants) {
 
     if (winnerId) {
 
-      // 赢家得420，系统得80，输者扣500
+      // 赢家拿回自己的冻结本金，并获得输家冻结约豆中的420；输家不再二次扣可用余额
+      const winnerFrozen = participants.find((p) => p.openid === winnerId)?.yuedouFrozen || YUEDOU_FROZEN;
+      const loserFrozen = participants.find((p) => p.openid === loserId)?.yuedouFrozen || YUEDOU_FROZEN;
       await db.collection("yueqiu8_users").where({ openid: winnerId }).update({
-        data: { yuedou: db.command.inc(YUEDOU_WINNER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
+        data: {
+          yuedou: db.command.inc(winnerFrozen + YUEDOU_WINNER),
+          yuedouFrozen: db.command.inc(-winnerFrozen),
+          yuedouSystem: db.command.inc(YUEDOU_SYSTEM)
+        }
       });
       await db.collection("yueqiu8_users").where({ openid: loserId }).update({
-        data: { yuedou: db.command.inc(-YUEDOU_LOSER), yuedouFrozen: db.command.inc(-YUEDOU_FROZEN), yuedouSystem: db.command.inc(YUEDOU_SYSTEM) }
+        data: {
+          yuedouFrozen: db.command.inc(-loserFrozen)
+        }
       });
 
       // 写约豆记录
-      await addScoreRecord(winnerId, "match_win", 10, venueId, matchId);
+      await addScoreRecord(winnerId, "match_win", YUEDOU_WINNER, venueId, matchId);
       await addScoreRecord(loserId, "match_lose", 0, venueId, matchId);
 
       const winnerNick = participants.find((p) => p.openid === winnerId)?.nickname || "某用户";
@@ -473,24 +481,37 @@ async function closeMatch(matchId, closerOpenid) {
     if (!isHost) throw new Error("仅发起人可关闭招募中的球局");
   }
 
-  // 进行中（超时）：冻结约豆解冻
+  // 关闭球局时，只退这场球局记录的冻结金额，避免误退用户其他球局的冻结约豆
+  for (const p of match.participants || []) {
+    const uid = p.openid;
+    const frozen = p.yuedouFrozen || 0;
+    if (!uid || frozen <= 0) continue;
+
+    try {
+      await db.collection("yueqiu8_users").where({ openid: uid }).update({
+        data: {
+          yuedou: db.command.inc(frozen),
+          yuedouFrozen: db.command.inc(-frozen)
+        }
+      });
+    } catch (e) {
+      console.error(`closeMatch 解冻约豆失败 uid=${uid}`, e);
+    }
+  }
+
   if (match.status === "playing") {
-    const allOpenids = [match.hostOpenid, ...(match.participants || []).map((p) => p.openid)];
+    const allOpenids = Array.from(new Set([match.hostOpenid, ...(match.participants || []).map((p) => p.openid)].filter(Boolean)));
     for (const uid of allOpenids) {
       try {
-        const userRec = await db.collection("yueqiu8_users").where({ openid: uid }).get();
-        const user = userRec.data[0];
-        const frozen = user?.yuedouFrozen ?? 0;
-        if (frozen > 0) {
-          await db.collection("yueqiu8_users").where({ openid: uid }).update({
-            data: {
-              yuedou: db.command.inc(frozen),
-              yuedouFrozen: db.command.inc(-frozen)
-            }
-          });
-        }
+        await addNotice({
+          type: "match_closed",
+          targetOpenid: uid,
+          matchId,
+          content: `「${match.venueName}」球局因超时被关闭，冻结约豆已解冻`,
+          createdAt: db.serverDate()
+        });
       } catch (e) {
-        console.error(`closeMatch 解冻约豆失败 uid=${uid}`, e);
+        console.error(`closeMatch 通知失败 uid=${uid}`, e);
       }
     }
   }
@@ -505,7 +526,7 @@ async function closeMatch(matchId, closerOpenid) {
     targetOpenid: match.hostOpenid,
     matchId,
     content: match.status === "recruiting"
-      ? `你发起的「${match.venueName}」球局已关闭`
+      ? `你发起的「${match.venueName}」球局已关闭，冻结约豆已解冻`
       : `「${match.venueName}」球局因超时被关闭，冻结约豆已解冻`,
     createdAt: db.serverDate()
   });
@@ -582,10 +603,13 @@ async function getCurrentUser() {
   } else {
     // 老用户迁移：补充缺失的约豆字段（只补充 yuedou，避免老用户积分被覆盖）
     const u = data[0];
-    const needsFix = (u.yuedou == null || u.yuedou === 0) && (u.score != null && u.score > 0);
-    if (needsFix) {
+    const fixData = {};
+    if (u.yuedou == null) fixData.yuedou = YUEDOU_INITIAL;
+    if (u.yuedouFrozen == null) fixData.yuedouFrozen = 0;
+    if (u.yuedouSystem == null) fixData.yuedouSystem = 0;
+    if (Object.keys(fixData).length > 0) {
       await DB().collection("yueqiu8_users").where({ openid }).update({
-        data: { yuedou: YUEDOU_INITIAL, yuedouFrozen: 0, yuedouSystem: 0 }
+        data: fixData
       });
       ({ data } = await DB().collection("yueqiu8_users").where({ openid }).get());
     }
