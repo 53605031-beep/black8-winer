@@ -1,7 +1,7 @@
 {
   "name": "economyService",
   "version": "1.0.0",
-  "description": "约球8 · 经济系统云函数（每日礼包等约豆变动）",
+  "description": "约球8 · 约豆经济操作云函数（每日礼包等）",
   "main": "index.js",
   "dependencies": {
     "wx-server-sdk": "~2.6.3"
