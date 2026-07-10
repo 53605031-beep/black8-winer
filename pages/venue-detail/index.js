@@ -97,12 +97,18 @@ Page({
         try {
           await cloudDB.cancelMatchByVenueOwner(match._id);
           wx.hideLoading();
-          wx.showToast({ title: "球局已取消，约豆已退还", icon: "success" });
+          wx.showToast({ title: "球局已取消", icon: "success" });
           // 刷新球局列表
           const venueId = this.data.venue._id;
           const rawMatches = await cloudDB.getMatchesByVenue(venueId);
           this.setData({
-            venueMatches: rawMatches.filter((m) => m.status !== "cancelled")
+            venueMatches: rawMatches.map((m) => ({
+              ...m,
+              startAtText: formatDateTime(m.startAt),
+              playTypeText: playTypeLabel(m.playType),
+              costModeText: costModeLabel(m.costMode || "aa"),
+              hostNickname: m.hostNickname || m.host?.nickname || "球友"
+            }))
           });
         } catch (err) {
           wx.hideLoading();
