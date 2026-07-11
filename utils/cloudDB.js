@@ -250,18 +250,26 @@ async function getMyActiveMatches() {
     .get();
 
   const now = Date.now();
-  // 自动过滤：招募中但开赛时间已过 = 视为过期，后台自动关闭
-  const active = data.filter((m) => {
+  const active = [];
+  // 招募中过期时，发起人尝试关闭；关闭失败就仍显示，避免冻结约豆被“藏起来”。
+  for (const m of data) {
     if (m.status === "recruiting" && m.startAt && m.startAt < now) {
       if (m.hostOpenid === openid) {
-        closeMatch(m._id, openid).catch(() => {});
-        return false;
+        try {
+          await closeMatch(m._id, openid);
+          continue;
+        } catch (e) {
+          console.error("自动关闭过期球局失败", e);
+          active.push(m);
+          continue;
+        }
       }
       // 加入者不能关闭招募局，仍保留在列表中，方便主动退出并拿回冻结约豆。
-      return true;
+      active.push(m);
+      continue;
     }
-    return m.status === "recruiting" || m.status === "playing";
-  });
+    if (m.status === "recruiting" || m.status === "playing") active.push(m);
+  }
   return active;
 }
 
@@ -523,7 +531,6 @@ async function getCurrentUser() {
 
 /**
  * 更新当前用户的昵称和头像（用于加入球局时设置资料）
- * 同时同步到该用户已加入的所有进行中球局的 participants 数组
  * @param {object} profile  { nickname?: string, avatarUrl?: string }
  */
 async function updateUserProfile(profile) {
@@ -539,22 +546,6 @@ async function updateUserProfile(profile) {
   await DB().collection("yueqiu8_users").where({ openid }).update({
     data: updateData
   });
-
-  // 同步更新该用户已加入的球局 participants 里的昵称和头像
-  try {
-    const activeMatches = await getMyActiveMatches();
-    for (const m of activeMatches) {
-      const updatedParticipants = (m.participants || []).map((p) => {
-        if (p.openid === openid) return { ...p, ...updateData };
-        return p;
-      });
-      await DB().collection("matches").doc(m._id).update({
-        data: { participants: updatedParticipants }
-      });
-    }
-  } catch (e) {
-    console.error("同步用户资料到球局失败（不影响主更新）", e);
-  }
 }
 
 /**
