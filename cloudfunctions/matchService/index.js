@@ -123,10 +123,10 @@ async function refundFrozenParticipants(transaction, participants, userIdsByOpen
     const openid = participant.openid;
     const frozen = getFrozenAmount(participant);
     if (!openid || frozen <= 0 || refunded.has(openid)) continue;
-    refunded.add(openid);
 
     const user = await getUserInTransaction(transaction, getParticipantUserId(participant, userIdsByOpenid));
-    if (!user) continue;
+    if (!user) throw new Error("参与者用户数据不存在，无法自动退款");
+    refunded.add(openid);
     // 只退这场球局记录里的冻结额，避免误退用户其它球局的冻结约豆。
     await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: {
@@ -495,31 +495,35 @@ async function doLeave(openid, matchId) {
 
 // ── 确认比赛开始 ───────────────────────────────────────────
 async function doConfirm(openid, matchId) {
-  const match = await getMatch(matchId);
-  if (!match) throw new Error("球局不存在");
-  if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
-  if (match.status !== "recruiting") throw new Error("当前状态不可确认");
+  let allOpenids = [];
+  await db.runTransaction(async (transaction) => {
+    const matchRes = await transaction.collection("matches").doc(matchId).get();
+    const match = matchRes.data;
+    if (!match) throw new Error("球局不存在");
+    if (match.hostOpenid !== openid) throw new Error("仅发起人可确认");
+    if (match.status !== "recruiting") throw new Error("当前状态不可确认");
 
-  const participants = match.participants || [];
-  const target = match.headcountTarget || 2;
-  if (participants.length < target || (match.headcountJoined ?? participants.length) < target) {
-    throw new Error("人数未满，不能开始比赛");
-  }
-  const uniqueOpenids = Array.from(new Set(participants.map((p) => p.openid).filter(Boolean)));
-  if (uniqueOpenids.length !== participants.length || !uniqueOpenids.includes(match.hostOpenid)) {
-    throw new Error("参与人数据异常，不能开始比赛");
-  }
+    const participants = match.participants || [];
+    const target = match.headcountTarget || 2;
+    if (participants.length < target || (match.headcountJoined ?? participants.length) < target) {
+      throw new Error("人数未满，不能开始比赛");
+    }
+    const uniqueOpenids = Array.from(new Set(participants.map((p) => p.openid).filter(Boolean)));
+    if (uniqueOpenids.length !== participants.length || !uniqueOpenids.includes(match.hostOpenid)) {
+      throw new Error("参与人数据异常，不能开始比赛");
+    }
 
-  const allVerified = participants.every((p) => p.locationVerified);
-  if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
+    const allVerified = participants.every((p) => p.locationVerified);
+    if (!allVerified) throw new Error("双方需先完成位置校验后才能开始比赛");
 
-  await db.collection("matches").doc(matchId).update({
-    data: { status: "playing", startedAt: db.serverDate() }
+    await transaction.collection("matches").doc(matchId).update({
+      data: { status: "playing", startedAt: db.serverDate() }
+    });
+    allOpenids = uniqueOpenids;
   });
 
-  const allOpenids = uniqueOpenids;
   for (const uid of allOpenids) {
-    const isHost = uid === match.hostOpenid;
+    const isHost = uid === openid;
     await recordMatchParticipation(uid, matchId, isHost);
   }
 
@@ -564,9 +568,14 @@ async function doSubmitResult(openid, matchId, choice) {
       return;
     }
 
-    const choices = updated.map((p) => p.resultChoice);
-    const hostChoice = choices[0];
-    const joinChoice = choices[1];
+    const choices = {};
+    updated.forEach((p) => { choices[p.openid] = p.resultChoice; });
+    const host = updated.find((p) => p.openid === match.hostOpenid);
+    const joiner = updated.find((p) => p.openid !== match.hostOpenid);
+    if (!host || !joiner) throw new Error("参与人数据异常，不能结算");
+
+    const hostChoice = choices[match.hostOpenid] || "";
+    const joinChoice = choices[joiner.openid] || "";
     const isConsistent = (hostChoice === "win" && joinChoice === "lose") ||
                          (hostChoice === "lose" && joinChoice === "win");
 
@@ -581,8 +590,8 @@ async function doSubmitResult(openid, matchId, choice) {
       return;
     }
 
-    const winnerId = hostChoice === "win" ? match.hostOpenid : updated.find((p) => p.openid !== match.hostOpenid).openid;
-    const loserId = winnerId === match.hostOpenid ? updated.find((p) => p.openid !== match.hostOpenid).openid : match.hostOpenid;
+    const winnerId = hostChoice === "win" ? match.hostOpenid : joiner.openid;
+    const loserId = winnerId === match.hostOpenid ? joiner.openid : match.hostOpenid;
     const winner = updated.find((p) => p.openid === winnerId);
     const loser = updated.find((p) => p.openid === loserId);
     const winnerFrozen = getFrozenAmount(winner);
@@ -610,7 +619,7 @@ async function doSubmitResult(openid, matchId, choice) {
       }
     });
 
-    const finalParticipants = updated.map((p) => ({
+    const finalParticipants = [host, joiner].map((p) => ({
       openid: p.openid,
       nickname: p.nickname,
       resultChoice: p.resultChoice
@@ -832,7 +841,11 @@ async function doSettleMatch(matchId, match, participants) {
       }
     });
 
-    const finalParticipants = latestParticipants.map((p) => ({
+    const orderedFinalParticipants = [
+      latestParticipants.find((p) => p.openid === latest.hostOpenid),
+      joiner
+    ].filter(Boolean);
+    const finalParticipants = orderedFinalParticipants.map((p) => ({
       openid: p.openid,
       nickname: p.nickname,
       resultChoice: p.resultChoice
