@@ -93,6 +93,12 @@ assert(
 );
 
 assert(
+  matchService.includes('if (!user) throw new Error("用户数据不存在，无法自动退款")') &&
+    !matchService.includes("if (user) {"),
+  "普通参与者退出时找不到用户也必须失败，不能先移除参与人再跳过退款"
+);
+
+assert(
   !cloudDB.includes('data: { participants: updatedParticipants }'),
   "客户端更新资料不能重写整份 participants 数组，避免覆盖服务端结算状态"
 );
