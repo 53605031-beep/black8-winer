@@ -464,6 +464,8 @@ async function doLeave(openid, matchId) {
     if (!current) throw new Error("你不在此球局中，无法退出");
     const frozenAmount = getFrozenAmount(current);
     const updatedParticipants = participants.filter((p) => p.openid !== openid);
+    const user = await getUserInTransaction(transaction, current.userDocId || existingUser._id);
+    if (!user) throw new Error("用户数据不存在，无法自动退款");
 
     await transaction.collection("matches").doc(matchId).update({
       data: {
@@ -473,18 +475,15 @@ async function doLeave(openid, matchId) {
     });
 
     if (frozenAmount > 0) {
-      const user = await getUserInTransaction(transaction, current.userDocId || existingUser._id);
-      if (user) {
-        await transaction.collection("yueqiu8_users").doc(user._id).update({
-          data: {
-            yuedou: _.inc(frozenAmount),
-            yuedouFrozen: _.inc(-frozenAmount),
-            activeMatchId: null
-          }
-        });
-      }
+      await transaction.collection("yueqiu8_users").doc(user._id).update({
+        data: {
+          yuedou: _.inc(frozenAmount),
+          yuedouFrozen: _.inc(-frozenAmount),
+          activeMatchId: null
+        }
+      });
     } else {
-      await transaction.collection("yueqiu8_users").doc(existingUser._id).update({
+      await transaction.collection("yueqiu8_users").doc(user._id).update({
         data: { activeMatchId: null }
       });
     }
