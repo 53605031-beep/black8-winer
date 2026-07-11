@@ -71,4 +71,37 @@ assert(
   "进行中球局缺少合法 startedAt 时不能被强制关闭退款"
 );
 
+assert(
+  matchService.includes("async function doConfirm") &&
+    matchService.includes('await db.runTransaction(async (transaction) =>') &&
+    matchService.includes('const matchRes = await transaction.collection("matches").doc(matchId).get()') &&
+    matchService.includes('await transaction.collection("matches").doc(matchId).update'),
+  "确认开始必须在事务内重新读取球局，避免和退出并发导致单人 playing 球局"
+);
+
+assert(
+  matchService.includes('const host = updated.find((p) => p.openid === match.hostOpenid)') &&
+    matchService.includes('const hostChoice = choices[match.hostOpenid] || ""') &&
+    !matchService.includes("const hostChoice = choices[0]"),
+  "结算必须按 hostOpenid 判断发起人结果，不能依赖 participants 数组顺序"
+);
+
+assert(
+  matchService.includes('if (!user) throw new Error("参与者用户数据不存在，无法自动退款")') &&
+    !matchService.includes("if (!user) continue"),
+  "退款找不到用户时必须保留球局冻结记录并失败，不能静默跳过"
+);
+
+assert(
+  !cloudDB.includes('data: { participants: updatedParticipants }'),
+  "客户端更新资料不能重写整份 participants 数组，避免覆盖服务端结算状态"
+);
+
+assert(
+  cloudDB.includes("自动关闭过期球局失败") &&
+    cloudDB.includes("active.push(m);") &&
+    !cloudDB.includes("closeMatch(m._id, openid).catch(() => {})"),
+  "自动关闭过期球局失败时仍要显示活跃球局，避免冻结约豆被隐藏"
+);
+
 console.log("economy rules checks passed");
