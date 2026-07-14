@@ -26,6 +26,19 @@ assert(
 );
 
 assert(
+  !economyService.includes("ensureDailyPool") &&
+    economyService.includes("const poolExists = Boolean(poolRecord.data)") &&
+    economyService.includes('transaction.collection("daily_pools").doc(today).set'),
+  "每日资金池首次创建必须在领取/兑换事务中完成，不能在事务外覆盖当天记录"
+);
+
+assert(
+  economyService.includes('parsePositiveInteger(latestGoods.price, "商品价格")') &&
+    economyService.includes('parsePositiveInteger(latestGoods.stock, "商品库存")'),
+  "兑换必须拒绝零数、负数或小数价格和库存，避免反向增加余额或库存"
+);
+
+assert(
   economyService.includes('transaction.collection("daily_pools").doc(today).get()') &&
     matchService.includes('transaction.collection("matches").doc(matchId).get()'),
   "云函数事务内读写必须使用兼容的 transaction.collection API"
@@ -96,6 +109,20 @@ assert(
   matchService.includes('if (!user) throw new Error("用户数据不存在，无法自动退款")') &&
     !matchService.includes("if (user) {"),
   "普通参与者退出时找不到用户也必须失败，不能先移除参与人再跳过退款"
+);
+
+assert(
+  matchService.includes("参与者冻结约豆数据异常，无法自动退款") &&
+    matchService.includes("用户冻结约豆数据异常，不能结算"),
+  "退款和结算必须核对账户冻结余额，不能把历史脏数据扣成负数"
+);
+
+assert(
+  matchService.includes('transaction.collection("matches").doc(matchId).get()') &&
+    matchService.includes('transaction.collection("matches").doc(matchId).update') &&
+    matchService.includes('db.collection("venues").doc(match.venueId).get()') &&
+    !matchService.includes("maxDistanceKm"),
+  "位置校验必须事务合并最新参与人，并使用服务端球房坐标和固定距离"
 );
 
 assert(
