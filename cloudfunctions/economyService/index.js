@@ -26,29 +26,23 @@ async function getUserByOpenid(openid) {
   return (res.data && res.data[0]) || null;
 }
 
-async function ensureDailyPool(today) {
-  const initialPool = {
+function createDailyPool() {
+  return {
     totalPool: YUEDOU_DAILY_POOL,
     remaining: YUEDOU_DAILY_POOL,
     totalClaimed: 0,
     claimants: [],
+    redemptionCounts: {},
     createdAt: db.serverDate()
   };
+}
 
-  try {
-    const pool = await db.collection("daily_pools").doc(today).get();
-    if (pool && pool.data) return;
-  } catch (e) {
-    // 文档不存在时继续创建；其它错误会在 set 或事务阶段暴露。
+function parsePositiveInteger(value, fieldName) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${fieldName}数据异常`);
   }
-
-  try {
-    await db.collection("daily_pools").doc(today).set({ data: initialPool });
-  } catch (e) {
-    // 并发首领时可能已经由另一个请求创建，重新读取确认即可。
-    const pool = await db.collection("daily_pools").doc(today).get();
-    if (!pool || !pool.data) throw e;
-  }
+  return parsed;
 }
 
 async function claimDailyBonus(openid) {
@@ -56,14 +50,12 @@ async function claimDailyBonus(openid) {
   const user = await getUserByOpenid(openid);
   if (!user || !user._id) throw new Error("用户不存在");
 
-  await ensureDailyPool(today);
-
   let result = null;
   await db.runTransaction(async (transaction) => {
     result = null;
     const poolRecord = await transaction.collection("daily_pools").doc(today).get();
-    const pool = poolRecord.data;
-    if (!pool) throw new Error("今日资金池不存在");
+    const poolExists = Boolean(poolRecord.data);
+    const pool = poolRecord.data || createDailyPool();
 
     if ((pool.claimants || []).includes(openid)) {
       result = {
@@ -89,18 +81,31 @@ async function claimDailyBonus(openid) {
     await transaction.collection("yueqiu8_users").doc(user._id).update({
       data: { yuedou: _.inc(YUEDOU_DAILY_BONUS) }
     });
-    await transaction.collection("daily_pools").doc(today).update({
-      data: {
-        remaining: _.inc(-YUEDOU_DAILY_BONUS),
-        totalClaimed: _.inc(YUEDOU_DAILY_BONUS),
-        claimants: _.push(openid)
-      }
-    });
+    const nextRemaining = (pool.remaining || 0) - YUEDOU_DAILY_BONUS;
+    const nextTotalClaimed = (pool.totalClaimed || 0) + YUEDOU_DAILY_BONUS;
+    if (poolExists) {
+      await transaction.collection("daily_pools").doc(today).update({
+        data: {
+          remaining: nextRemaining,
+          totalClaimed: nextTotalClaimed,
+          claimants: [...(pool.claimants || []), openid]
+        }
+      });
+    } else {
+      await transaction.collection("daily_pools").doc(today).set({
+        data: {
+          ...pool,
+          remaining: nextRemaining,
+          totalClaimed: nextTotalClaimed,
+          claimants: [openid]
+        }
+      });
+    }
 
     result = {
       code: "ok",
-      remaining: (pool.remaining || 0) - YUEDOU_DAILY_BONUS,
-      totalClaimed: (pool.totalClaimed || 0) + YUEDOU_DAILY_BONUS
+      remaining: nextRemaining,
+      totalClaimed: nextTotalClaimed
     };
   });
 
@@ -142,7 +147,7 @@ async function redeemGoods(openid, goodsId, address) {
 
   const currencyType = goods.currencyType || "score";
   const currencyName = currencyType === "yuedou" ? "约豆" : "积分";
-  const price = parseInt(goods.price, 10) || 0;
+  const price = parsePositiveInteger(goods.price, "商品价格");
 
   const today = todayString();
   const todayStart = new Date(today + "T00:00:00").getTime();
@@ -153,12 +158,12 @@ async function redeemGoods(openid, goodsId, address) {
     })
     .count();
   if (total >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
-  await ensureDailyPool(today);
   const counterKey = openid.replace(/[^A-Za-z0-9_]/g, "_");
 
   await db.runTransaction(async (transaction) => {
     const poolRecord = await transaction.collection("daily_pools").doc(today).get();
-    const pool = poolRecord.data || {};
+    const poolExists = Boolean(poolRecord.data);
+    const pool = poolRecord.data || createDailyPool();
     const redemptionCounts = pool.redemptionCounts || {};
     const redeemedToday = Math.max(Number(redemptionCounts[counterKey]) || 0, total);
     if (redeemedToday >= 3) throw new Error("今日兑换次数已用完（每天最多兑换3次）");
@@ -171,10 +176,11 @@ async function redeemGoods(openid, goodsId, address) {
     const latestGoods = latestGoodsRecord.data;
     if (!latestGoods) throw new Error("商品不存在");
     if (latestGoods.status !== "active") throw new Error("商品已下架");
-    if ((latestGoods.stock || 0) <= 0) throw new Error("库存不足");
+    parsePositiveInteger(latestGoods.stock, "商品库存");
 
-    const latestPrice = parseInt(latestGoods.price, 10) || 0;
+    const latestPrice = parsePositiveInteger(latestGoods.price, "商品价格");
     const latestCurrencyType = latestGoods.currencyType || "score";
+    if (!["yuedou", "score"].includes(latestCurrencyType)) throw new Error("商品兑换类型异常");
     const latestCurrencyName = latestCurrencyType === "yuedou" ? "约豆" : "积分";
     const balance = latestCurrencyType === "yuedou" ? (latestUser.yuedou || 0) : (latestUser.score || 0);
     if (balance < latestPrice) {
@@ -191,12 +197,22 @@ async function redeemGoods(openid, goodsId, address) {
         redeemedCount: _.inc(1)
       }
     });
-    await transaction.collection("daily_pools").doc(today).update({
-      data: {
-        [`redemptionCounts.${counterKey}`]: redeemedToday + 1,
-        redemptionCounterUpdatedAt: db.serverDate()
-      }
-    });
+    if (poolExists) {
+      await transaction.collection("daily_pools").doc(today).update({
+        data: {
+          [`redemptionCounts.${counterKey}`]: redeemedToday + 1,
+          redemptionCounterUpdatedAt: db.serverDate()
+        }
+      });
+    } else {
+      await transaction.collection("daily_pools").doc(today).set({
+        data: {
+          ...pool,
+          redemptionCounts: { [counterKey]: redeemedToday + 1 },
+          redemptionCounterUpdatedAt: db.serverDate()
+        }
+      });
+    }
     await transaction.collection("mall_redemptions").add({
       data: {
         openid,

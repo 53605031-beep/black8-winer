@@ -126,6 +126,9 @@ async function refundFrozenParticipants(transaction, participants, userIdsByOpen
 
     const user = await getUserInTransaction(transaction, getParticipantUserId(participant, userIdsByOpenid));
     if (!user) throw new Error("参与者用户数据不存在，无法自动退款");
+    if ((Number(user.yuedouFrozen) || 0) < frozen) {
+      throw new Error("参与者冻结约豆数据异常，无法自动退款");
+    }
     refunded.add(openid);
     // 只退这场球局记录里的冻结额，避免误退用户其它球局的冻结约豆。
     await transaction.collection("yueqiu8_users").doc(user._id).update({
@@ -243,6 +246,20 @@ function _calcDistance(lat1, lon1, lat2, lon2) {
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c * 10) / 10;
+}
+
+function getVenueCoordinates(venue) {
+  if (!venue) return null;
+  const location = venue.location || {};
+  const coordinates = location.coordinates || [];
+  const latitude = Number(
+    venue._locationPlain?.latitude ?? coordinates[1] ?? venue.latitude
+  );
+  const longitude = Number(
+    venue._locationPlain?.longitude ?? coordinates[0] ?? venue.longitude
+  );
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
 }
 
 function _todayStr() {
@@ -466,6 +483,9 @@ async function doLeave(openid, matchId) {
     const updatedParticipants = participants.filter((p) => p.openid !== openid);
     const user = await getUserInTransaction(transaction, current.userDocId || existingUser._id);
     if (!user) throw new Error("用户数据不存在，无法自动退款");
+    if ((Number(user.yuedouFrozen) || 0) < frozenAmount) {
+      throw new Error("冻结约豆数据异常，无法自动退款");
+    }
 
     await transaction.collection("matches").doc(matchId).update({
       data: {
@@ -602,6 +622,10 @@ async function doSubmitResult(openid, matchId, choice) {
     const winnerUser = await getUserInTransaction(transaction, getParticipantUserId(winner, userIdsByOpenid));
     const loserUser = await getUserInTransaction(transaction, getParticipantUserId(loser, userIdsByOpenid));
     if (!winnerUser || !loserUser) throw new Error("用户数据不存在，不能结算");
+    if ((Number(winnerUser.yuedouFrozen) || 0) < winnerFrozen ||
+        (Number(loserUser.yuedouFrozen) || 0) < loserFrozen) {
+      throw new Error("用户冻结约豆数据异常，不能结算");
+    }
 
     await transaction.collection("yueqiu8_users").doc(winnerUser._id).update({
       data: {
@@ -737,44 +761,61 @@ async function doCancelByVenueOwner(openid, matchId) {
 }
 
 // ── 位置校验 ───────────────────────────────────────────────
-async function doVerifyLocation(openid, matchId, userLat, userLon, maxDistanceKm) {
+async function doVerifyLocation(openid, matchId, userLat, userLon) {
+  const latitude = Number(userLat);
+  const longitude = Number(userLon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    throw new Error("当前位置数据异常，请重新定位");
+  }
+
   const match = await getMatch(matchId);
   if (!match) throw new Error("球局不存在");
   if (match.status !== "recruiting") throw new Error("当前状态无法校验位置");
+  if (!match.venueId) throw new Error("球局缺少球房信息，无法校验位置");
 
-  const me = (match.participants || []).find((p) => p.openid === openid);
-  if (!me) throw new Error("你不在此球局中");
+  // 球房坐标只能从服务端球房记录读取，不能信任发布者写进球局的数据。
+  const venueRecord = await db.collection("venues").doc(match.venueId).get();
+  const venueCoordinates = getVenueCoordinates(venueRecord.data);
+  if (!venueCoordinates) throw new Error("球房缺少有效位置，无法校验");
 
-  if (me.locationVerified) {
-    return { code: "already_verified", verified: true };
-  }
-
-  const venueLat = match.venueLatitude;
-  const venueLon = match.venueLongitude;
-  const maxDist  = maxDistanceKm || 0.5;
-
-  if (venueLat == null || venueLon == null) {
-    // 球局没有设置位置，跳过距离校验
-    const updated = (match.participants || []).map((p) => {
-      if (p.openid === openid) return { ...p, locationVerified: true, locationVerifiedAt: Date.now() };
-      return p;
-    });
-    await db.collection("matches").doc(matchId).update({ data: { participants: updated } });
-    return { code: "ok", verified: true, distance: null };
-  }
-
-  const dist = _calcDistance(userLat, userLon, venueLat, venueLon);
-  if (dist > maxDist) {
+  const dist = _calcDistance(
+    latitude,
+    longitude,
+    venueCoordinates.latitude,
+    venueCoordinates.longitude
+  );
+  if (dist > 0.5) {
     return { code: "too_far", verified: false, distance: dist };
   }
 
-  const updated = (match.participants || []).map((p) => {
-    if (p.openid === openid) return { ...p, locationVerified: true, locationVerifiedAt: Date.now() };
-    return p;
-  });
-  await db.collection("matches").doc(matchId).update({ data: { participants: updated } });
+  let result = { code: "ok", verified: true, distance: dist };
+  await db.runTransaction(async (transaction) => {
+    const latestRecord = await transaction.collection("matches").doc(matchId).get();
+    const latest = latestRecord.data;
+    if (!latest) throw new Error("球局不存在");
+    if (latest.status !== "recruiting") throw new Error("当前状态无法校验位置");
 
-  return { code: "ok", verified: true, distance: dist };
+    const participants = latest.participants || [];
+    const current = participants.find((p) => p.openid === openid);
+    if (!current) throw new Error("你不在此球局中");
+    if (current.locationVerified) {
+      result = { code: "already_verified", verified: true, distance: dist };
+      return;
+    }
+
+    const updated = participants.map((p) => {
+      if (p.openid === openid) {
+        return { ...p, locationVerified: true, locationVerifiedAt: Date.now() };
+      }
+      return p;
+    });
+    await transaction.collection("matches").doc(matchId).update({
+      data: { participants: updated }
+    });
+  });
+
+  return result;
 }
 
 // ── 结算 ───────────────────────────────────────────────────
@@ -823,6 +864,10 @@ async function doSettleMatch(matchId, match, participants) {
     const winnerUser = await getUserInTransaction(transaction, getParticipantUserId(winner, userIdsByOpenid));
     const loserUser = await getUserInTransaction(transaction, getParticipantUserId(loser, userIdsByOpenid));
     if (!winnerUser || !loserUser) throw new Error("用户数据不存在，不能结算");
+    if ((Number(winnerUser.yuedouFrozen) || 0) < winnerFrozen ||
+        (Number(loserUser.yuedouFrozen) || 0) < loserFrozen) {
+      throw new Error("用户冻结约豆数据异常，不能结算");
+    }
 
     // 赢家拿回自己的冻结额，并获得输家冻结额中的420；输家只消耗已冻结的500。
     await transaction.collection("yueqiu8_users").doc(winnerUser._id).update({
@@ -891,7 +936,7 @@ exports.main = async (event) => {
     return { ok: false, errMsg: "无法获取用户身份" };
   }
 
-  const { action, matchId, matchData, choice, userLat, userLon, maxDistanceKm } = event;
+  const { action, matchId, matchData, choice, userLat, userLon } = event;
 
   try {
     switch (action) {
@@ -910,7 +955,7 @@ exports.main = async (event) => {
       case "submitResult":
         return { ok: true, ...(await doSubmitResult(OPENID, matchId, choice)) };
       case "verifyLocation":
-        return await doVerifyLocation(OPENID, matchId, userLat, userLon, maxDistanceKm);
+        return await doVerifyLocation(OPENID, matchId, userLat, userLon);
       default:
         return { ok: false, errMsg: "未知操作: " + action };
     }
