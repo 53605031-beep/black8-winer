@@ -253,10 +253,10 @@ function getVenueCoordinates(venue) {
   const location = venue.location || {};
   const coordinates = location.coordinates || [];
   const latitude = Number(
-    venue._locationPlain?.latitude ?? coordinates[1] ?? venue.latitude
+    venue._locationPlain?.latitude ?? location.latitude ?? coordinates[1] ?? venue.latitude
   );
   const longitude = Number(
-    venue._locationPlain?.longitude ?? coordinates[0] ?? venue.longitude
+    venue._locationPlain?.longitude ?? location.longitude ?? coordinates[0] ?? venue.longitude
   );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
