@@ -121,6 +121,8 @@ assert(
   matchService.includes('transaction.collection("matches").doc(matchId).get()') &&
     matchService.includes('transaction.collection("matches").doc(matchId).update') &&
     matchService.includes('db.collection("venues").doc(match.venueId).get()') &&
+    matchService.includes("location.latitude") &&
+    matchService.includes("location.longitude") &&
     !matchService.includes("maxDistanceKm"),
   "位置校验必须事务合并最新参与人，并使用服务端球房坐标和固定距离"
 );
