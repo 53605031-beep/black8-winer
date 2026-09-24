@@ -82,13 +82,15 @@ Page({
     try {
       // 所有独立的数据库查询并行发出，减少等待时间
       // 只查活跃球局（recruiting + playing），已结束/已取消的不展示在"我的"
+      // 按当前用户查进行中球局。不能先拉全站列表再在本地过滤，
+      // 否则别人更早的球局会占满默认 20 条，自己冻结了约豆的球局就看不到、也关不掉。
       const [me, lb, dailyStatus, poolInfo, activityStatus, activeMatches] = await Promise.all([
         cloudDB.getCurrentUser(),
         cloudDB.getLeaderboard(),
         cloudDB.getDailyBonusStatus(),
         cloudDB.getDailyPoolInfo(),
         cloudDB.getActivityStatus(),
-        cloudDB.getMatches({ status: cloudDB.DB().command.in(["recruiting", "playing"]) })
+        cloudDB.getMyActiveMatches()
       ]);
 
       if (!me) {
