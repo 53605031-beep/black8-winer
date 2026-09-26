@@ -79,7 +79,7 @@ Page({
 
     try {
       const { filters } = this.data;
-      const whereFilters = { status: "recruiting" };
+      const whereFilters = { status: "recruiting", startAtGte: Date.now() };
 
       // 玩法筛选
       const dbPlayType = PLAY_TYPE_MAP[filters.playType];
