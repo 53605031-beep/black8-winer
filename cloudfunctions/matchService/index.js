@@ -170,7 +170,12 @@ function _monthStartStr() {
 async function doPublish(openid, matchData) {
   const headcountTarget = matchData.headcountTarget || 2;
   if (headcountTarget < 2) throw new Error("每局至少需要2人");
-  if (!matchData.startAt) throw new Error("请选择开局时间");
+  // 已经过去的开局时间会被当成“过期球局”直接关掉，而招募中关闭不会退冻结约豆。
+  // 必须在扣豆之前拦住，否则晚上默认时间折回当天 00:00 时，发起人会白白损失 500 约豆。
+  const startAt = Number(matchData.startAt);
+  if (!Number.isFinite(startAt) || startAt <= Date.now()) {
+    throw new Error("开局时间必须晚于当前时间");
+  }
   if (!matchData.venueId) throw new Error("请选择球房");
 
   const user = await getUserByOpenid(openid);
