@@ -1,4 +1,5 @@
 const cloudDB = require("../../utils/cloudDB");
+const { defaultStartSlot, buildStartTimestamp } = require("../../utils/format");
 
 // 星期文案
 const WEEKDAY = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -63,14 +64,21 @@ function timeToMinutes(t) {
   return h * 60 + m;
 }
 
-// 取当前时间，向上取整到下一个整 30 分钟
-function getDefaultTime() {
-  const now = new Date();
-  const curMins = now.getHours() * 60 + now.getMinutes();
-  const rounded = Math.ceil((curMins + 30) / 30) * 30;
-  const h = Math.floor(rounded % 1440 / 60);
-  const m = rounded % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+// 页面第一次打开时的默认日期和时间。过了午夜就用明天，避免默认成今天已经过去的 00:00。
+function initialSchedule(now = new Date()) {
+  const slot = defaultStartSlot(now);
+  const dateIdx = Math.min(slot.dayOffset, DATE_OPTIONS.length - 1);
+  const dateOption = DATE_OPTIONS[dateIdx];
+  const timeSlots = getTimeSlotsForDay(dateOption.dayIndex);
+  const time = timeSlots.includes(slot.time) ? slot.time : (timeSlots[0] || slot.time);
+  return {
+    date: dateOption.date,
+    time,
+    displayTime: formatDisplayTime(dateOption.date, time),
+    timeSlots,
+    curDateIdx: dateIdx,
+    curTimeIdx: findTimeIdx(timeSlots, time)
+  };
 }
 
 // 格式化显示文案：今天 15:00 / 03-30 14:30
@@ -178,18 +186,7 @@ Page({
   },
 
   onLoad() {
-    const todaySlots = buildTodayTimeSlots();
-    const defaultTime = getDefaultTime();
-    const date = DATE_OPTIONS[0].date;
-    const displayTime = formatDisplayTime(date, defaultTime);
-    this.setData({
-      date,
-      time: defaultTime,
-      displayTime,
-      timeSlots: todaySlots,
-      curDateIdx: 0,
-      curTimeIdx: findTimeIdx(todaySlots, defaultTime)
-    });
+    this.setData(initialSchedule());
   },
 
   // ========== 时间选择弹层 ==========
@@ -289,18 +286,9 @@ Page({
   },
 
   onReset() {
-    const todaySlots = buildTodayTimeSlots();
-    const defaultTime = getDefaultTime();
-    const date = DATE_OPTIONS[0].date;
-    const displayTime = formatDisplayTime(date, defaultTime);
     this.setData({
       venueIndex: 0,
-      date,
-      time: defaultTime,
-      displayTime,
-      timeSlots: todaySlots,
-      curDateIdx: 0,
-      curTimeIdx: findTimeIdx(todaySlots, defaultTime),
+      ...initialSchedule(),
       durationIndex: 1,
       playTypeIndex: 0,
       roundsIndex: 0,
@@ -354,12 +342,17 @@ Page({
   },
 
   async _doPublish(venue) {
+    const startAt = buildStartTimestamp(this.data.date, this.data.time);
+    // 先在本地拦住过期时间，避免云函数已经把 500 约豆冻上再失败。
+    if (!Number.isFinite(startAt) || startAt <= Date.now()) {
+      wx.showToast({ title: "开局时间需要晚于现在", icon: "none" });
+      return;
+    }
+
     this.setData({ publishing: true });
     wx.showLoading({ title: "发布中..." });
 
     try {
-      const startAt = this._buildTimestamp(this.data.date, this.data.time);
-
       await cloudDB.publishMatch({
         venueId: venue._id || venue.venueId,
         venueName: venue.name,
@@ -387,6 +380,6 @@ Page({
   },
 
   _buildTimestamp(date, time) {
-    return new Date(`${date}T${time}:00`).getTime();
+    return buildStartTimestamp(date, time);
   }
 });
